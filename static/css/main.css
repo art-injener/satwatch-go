@@ -119,21 +119,61 @@ body {
     color: var(--accent-primary);
 }
 
-.sidebar-footer {
-    display: flex;
+/* sidebar-footer удалён — SSE-индикатор перенесён в station-footer */
+
+/* Индикатор статуса SSE: три состояния, иконка broadcast */
+.sse-status {
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: var(--spacing-sm);
-    border-top: 1px solid var(--border-color);
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs);
+    min-width: 24px;
+    min-height: 24px;
+    border-radius: var(--radius-sm);
+    transition: color 0.2s ease, opacity 0.2s ease;
 }
 
-.status-dot {
-    font-size: 0.75rem;
+.sse-status__icon {
+    flex-shrink: 0;
+    display: block;
+}
+
+.sse-status__label {
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+/* Отключено — приглушённый серый */
+.sse-status--disconnected {
     color: var(--text-muted);
 }
 
-.status-dot.connected {
+.sse-status--disconnected .sse-status__icon {
+    opacity: 0.7;
+}
+
+/* Подключение — янтарный, пульсация */
+.sse-status--connecting {
+    color: var(--accent-warning);
+}
+
+.sse-status--connecting .sse-status__icon {
+    animation: sse-status-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes sse-status-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+}
+
+/* Подключено — зелёный, статично */
+.sse-status--connected {
     color: var(--accent-success);
+}
+
+.sse-status--connected .sse-status__icon {
+    opacity: 1;
 }
 
 /* ===== Main Wrapper ===== */
@@ -147,39 +187,98 @@ body {
 /* Main Content */
 .main {
     flex: 1;
-    padding: var(--spacing-md);
+    padding: 4px;
     overflow-y: auto;
 }
 
-/* Footer */
-.footer {
+/* ===== Station Footer (статусная строка) ===== */
+.station-footer {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    padding: var(--spacing-xs) var(--spacing-md);
+    justify-content: space-between;
+    height: 44px;
+    padding: 0 12px;
     background: var(--bg-secondary);
     border-top: 1px solid var(--border-color);
     font-family: var(--font-mono);
-    font-size: 0.7rem;
+    font-size: 1.1rem;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+.station-footer__left,
+.station-footer__right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.station-footer__item,
+.station-footer__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    padding: 3px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-tertiary);
+}
+
+.station-footer__time {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.station-footer__mode {
+    color: var(--accent-success);
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.station-footer__mode[data-mode="simulation"] {
+    color: var(--accent-warning);
+}
+
+.station-footer__mode[data-mode="receive"] {
+    color: var(--accent-danger);
+}
+
+.station-footer__sdr {
     color: var(--text-muted);
 }
 
-.status {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-xs);
+.station-footer__sdr[data-connected="true"] {
+    color: var(--accent-success);
 }
 
-.status.connected {
-    color: var(--accent-success);
+/* SSE-индикатор в footer */
+.station-footer .sse-status {
+    padding: 3px 10px;
+    min-width: auto;
+    min-height: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-tertiary);
+}
+
+.station-footer .sse-status__icon {
+    width: 18px;
+    height: 18px;
+}
+
+.station-footer .sse-status__label {
+    max-width: 6em;
+    opacity: 1;
+    font-size: 1rem;
 }
 
 /* ===== Tracking Layout - Grid: карта слева, графики справа ===== */
 .tracking-layout {
     display: grid;
-    grid-template-columns: 1fr 320px;
-    gap: var(--spacing-md);
-    height: calc(100vh - 80px); /* Учитываем footer */
+    grid-template-columns: 1fr minmax(220px, 22vw);
+    gap: 4px;
+    height: calc(100vh - 52px);
     min-height: 0;
 }
 
@@ -187,75 +286,29 @@ body {
 .map-column {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-sm);
+    gap: 4px;
     min-height: 0;
 }
 
 .earth-view-container {
     flex: 1;
+    position: relative;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
-    padding: var(--spacing-xs);
+    padding: 2px;
     overflow: hidden;
     min-height: 200px;
 }
 
+/* Отображаемый размер = 100% контейнера; буфер для HiDPI задаётся в JS */
 .earth-view-container canvas {
     width: 100%;
     height: 100%;
     display: block;
 }
 
-/* ===== Панель информации о спутнике ===== */
-.satellite-info-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    background: #0a0e14;
-    border: 1px solid #2a3444;
-    border-radius: 8px;
-    padding: 20px 28px;
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
-    position: relative;
-}
-
-.satellite-info-panel .info-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 20px 48px;
-    align-items: flex-end;
-}
-
-.satellite-info-panel .info-cell {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-width: 90px;
-}
-
-.satellite-info-panel .info-cell-name {
-    flex: 1;
-}
-
-.satellite-info-panel .info-label {
-    color: #666666;
-    font-size: 13px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-weight: 400;
-}
-
-.satellite-info-panel .info-value {
-    color: #ffffff;
-    font-size: 28px;
-    font-weight: 600;
-    line-height: 1.1;
-}
-
-.satellite-info-panel .info-value-accent {
-    color: #00d4aa;
-}
+/* satellite-info-panel удалён — заменён на .info-panel (info-panel.css) */
 
 /* Мигающая надпись "ИМИТАЦИЯ" в правом нижнем углу */
 .simulation-badge {
@@ -288,8 +341,9 @@ body {
 .charts-column {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-sm);
-    overflow-y: auto;
+    gap: 4px;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .azimuth-container,
@@ -298,10 +352,18 @@ body {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
-    padding: var(--spacing-sm);
-    text-align: center;
-    flex-shrink: 0;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 0;
+    overflow: hidden;
 }
+
+/* Пропорциональное распределение высоты (300:350:250) */
+.azimuth-container  { flex: 300 1 0; }
+.sky-view-container { flex: 350 1 0; }
+.elevation-container { flex: 280 1 0; }
 
 .charts-column h3 {
     font-size: 0.7rem;
@@ -314,28 +376,16 @@ body {
 
 .charts-column canvas {
     display: block;
-    margin: 0 auto;
+    flex: 1 1 0;
+    min-height: 0;
+    max-width: 100%;
     background: var(--bg-primary);
     border-radius: var(--radius-sm);
 }
 
-/* Азимут: 300x300 */
-.azimuth-container canvas {
-    width: 300px;
-    height: 300px;
-}
-
-/* Sky View: 300x350 */
-.sky-view-container canvas {
-    width: 300px;
-    height: 350px;
-}
-
-/* Угол места: 300x230 */
-.elevation-container canvas {
-    width: 300px;
-    height: 250px;
-}
+.azimuth-container canvas  { aspect-ratio: 1 / 1; }
+.sky-view-container canvas { aspect-ratio: 6 / 7; }
+.elevation-container canvas { aspect-ratio: 15 / 14; }
 
 /* Receiver Layout */
 .receiver-layout {
@@ -617,8 +667,7 @@ section h2 {
 }
 
 /* Responsive */
-@media (max-width: 1200px) {
-    /* На узких экранах графики под картой */
+@media (max-width: 800px) {
     .tracking-layout {
         grid-template-columns: 1fr;
         grid-template-rows: 1fr auto;
@@ -659,5 +708,241 @@ section h2 {
     
     .sidebar {
         display: none;
+    }
+}
+
+/* ============================================
+   Страница пролётов (Passes)
+   ============================================ */
+
+.passes-layout {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+    padding: var(--spacing-lg);
+    height: 100%;
+    overflow: hidden;
+}
+
+.passes-header {
+    flex-shrink: 0;
+    text-align: center;
+}
+
+.passes-header h2 {
+    font-size: 2rem; /* 28px — крупный заголовок */
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+    border-bottom: none;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.passes-subtitle {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    margin: 0;
+}
+
+/* Фильтры */
+.passes-filters {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-lg);
+    padding: var(--spacing-md);
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    flex-shrink: 0;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    border: none;
+    padding: 0;
+    margin: 0;
+}
+
+.filter-group legend {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-right: var(--spacing-md);
+}
+
+.filter-option {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    cursor: pointer;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.filter-option input[type="radio"] {
+    accent-color: var(--accent-primary);
+}
+
+.filter-option:hover {
+    color: var(--text-primary);
+}
+
+.filter-actions {
+    margin-left: auto;
+}
+
+/* Кнопки */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-sm) var(--spacing-md);
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s, color 0.15s;
+}
+
+.btn-secondary {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.btn-secondary:hover {
+    background: var(--border-color);
+    color: var(--text-primary);
+}
+
+.btn-primary {
+    background: var(--accent-secondary);
+    color: #fff;
+}
+
+.btn-primary:hover {
+    background: #0090dd;
+}
+
+/* Контейнер таблицы */
+.passes-table-container {
+    flex: 1;
+    overflow: auto;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    min-height: 200px;
+}
+
+/* Состояние загрузки */
+.passes-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-xl);
+    color: var(--text-muted);
+    height: 100%;
+}
+
+.spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--bg-tertiary);
+    border-top-color: var(--accent-secondary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ===== Оверлей смены спутника ===== */
+.tracking-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(6, 10, 18, 0.80);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    opacity: 1;
+    transition: opacity 0.6s ease-out;
+    pointer-events: none;
+    border-radius: var(--radius-md);
+}
+
+.tracking-overlay.hidden {
+    opacity: 0;
+    visibility: hidden;
+}
+
+.tracking-overlay.fade-out {
+    opacity: 0;
+}
+
+.tracking-overlay-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    text-align: center;
+}
+
+.tracking-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(0, 255, 200, 0.15);
+    border-top-color: var(--accent-primary, #00ffc8);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+}
+
+.tracking-overlay-text {
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 13px;
+    color: var(--text-muted, #6a7a8a);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.tracking-overlay-sat {
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 18px;
+    color: var(--accent-primary, #00ffc8);
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+.tracking-overlay-name {
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 14px;
+    color: var(--accent-secondary, #40c4ff);
+    font-weight: 500;
+}
+
+/* Responsive для страницы пролётов */
+@media (max-width: 900px) {
+    .passes-filters {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .filter-actions {
+        margin-left: 0;
+        width: 100%;
+    }
+    
+    .filter-actions .btn {
+        width: 100%;
+        justify-content: center;
     }
 }

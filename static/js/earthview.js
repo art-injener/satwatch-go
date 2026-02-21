@@ -18,36 +18,48 @@
         // Настройки по умолчанию
         this.options = Object.assign({
             coastlineUrl: '/static/data/ne_110m_coastline.json',
+            russiaBordersUrl: '/static/data/russia_110m.geojson',
             gridStep: 30, // Шаг сетки в градусах
             showGrid: true,
             showCoastlines: true,
+            showRussiaBorders: true, // Границы РФ и подпись «Россия»
             showFootprint: true, // Круг видимости спутника
             trackMode: 'both', // 'line', 'dots', 'both'
-            trackDotInterval: 60000, // Интервал точек в мс (1 минута)
-            orbitPeriodMinutes: 92, // Период орбиты (МКС ~92 мин)
-            orbitRevolutions: 3 // Количество витков для отображения
+            trackDotInterval: 60000 // Интервал точек в мс (1 минута)
         }, options || {});
 
-        // Цветовая схема в стиле STSPLUS
+        // Цветовая схема в стиле STSPLUS (улучшенная для читаемости)
         this.colors = {
             background: '#000010', // Тёмно-синий фон (океаны)
-            coastline: '#00d4d4', // Циан - береговые линии
-            grid: '#0044aa', // Синий - сетка (как в STSPLUS)
-            gridMajor: '#0066cc', // Яркий синий - основные линии
+            coastline: '#4d9999', // #5b8a8a #00d4d4, // Циан - береговые линии
+            grid: '#3a4a4a', // Серый - сетка #556677 #2a3d4d #334455 #3d5566
+            gridMajor: '#4a5e5e', // Светлее - основные линии #667788 #3a5060 #445566 #4d6677
             orbitFuture: '#00ff00', // Зелёный - будущая орбита
             orbitPast: '#ff4444', // Красный - прошлая орбита
             orbitDots: '#ffff00', // Жёлтый - точки орбиты
             satellite: '#ffffff', // Белый - маркер спутника
             satelliteGlow: '#00ffff', // Циан - свечение спутника
-            footprint: '#aaaaaa', // Серый - круг видимости (пунктир)
-            observer: '#ff0000', // Красный - наблюдатель (как в STSPLUS)
+            footprint: 'rgba(200, 100, 255, 0.55)', // Пурпурный - контур зоны видимости (контрастирует с бирюзой и зелёным)
+            footprintFill: 'rgba(200, 100, 255, 0.09)', // Пурпурный полупрозрачный - заливка зоны
+            observer: '#ff0000', // маркер наблюдателя (треугольник)
+            observerLabel: '#ff9500', // цвет треугольника наблюдателя — янтарный
+            observerLabelStroke: 'rgba(0,0,0,0.9)', // обводка треугольника/подписи наблюдателя
+            observerLabelBg: 'rgba(220, 220, 228, 0.92)', // фон под подпись наблюдателя — светло-серый
             textPrimary: '#ffffff',
             textSecondary: '#00d4d4', // Циан для подписей
-            textGrid: '#ffffff' // Белые подписи сетки
+            textGrid: '#ffffff', // Белые подписи сетки
+            satLabel: '#ffeb3b', // подпись спутника — яркий жёлтый
+            satLabelStroke: 'rgba(0,0,0,0.85)', // обводка подписи спутника
+            satLabelBg: 'rgba(220, 220, 228, 0.92)', // фон под подпись спутника — светло-серый
+            russiaBorder: '#aabbcc', // Границы РФ альтернатива: #8899aa, #66bb6a
+            russiaLabel: '#ffcc00' // Подпись «Россия»
         };
 
         // Данные береговых линий (GeoJSON)
         this.coastlineData = null;
+
+        // Данные границ РФ (GeoJSON)
+        this.russiaData = null;
 
         // Состояние карты
         this.center = { lon: 0, lat: 0 }; // Центр карты
@@ -56,7 +68,8 @@
         // Данные спутника
         this.satellite = {
             position: null, // {lon, lat, alt}
-            groundTrack: [], // Массив точек орбиты
+            groundTrack: [], // Массив точек или {past: [[...]], future: [[...]]} с сервера
+            visibilityZone: null, // Точки контура зоны видимости с сервера [{lon, lat}, ...]
             name: '',
             noradId: null
         };
@@ -66,13 +79,13 @@
 
         // Столицы мира для отображения на карте (только основные)
         this.cities = [
-            { name: 'MOSCOW', lon: 37.62, lat: 55.75 },
+            { name: 'МОСКВА', lon: 37.62, lat: 55.75 },
             { name: 'BEIJING', lon: 116.40, lat: 39.90 },
             { name: 'TOKYO', lon: 139.69, lat: 35.69 },
             { name: 'DELHI', lon: 77.21, lat: 28.61 },
             { name: 'NEW YORK', lon: -74.01, lat: 40.71 },
             { name: 'LONDON', lon: -0.13, lat: 51.51 },
-            { name: 'CAIRO', lon: 31.24, lat: 30.04 },
+            // { name: 'CAIRO', lon: 31.24, lat: 30.04 },
             { name: 'SYDNEY', lon: 151.21, lat: -33.87 },
             { name: 'RIO DE JANEIRO', lon: -43.17, lat: -22.91 },
             { name: 'CAPE TOWN', lon: 18.42, lat: -33.93 },
@@ -85,7 +98,32 @@
 
         // Привязка обработчиков событий
         this._boundResize = this._onResize.bind(this);
+        this._resizeObserver = null;
     }
+
+    /**
+     * Настройка размеров canvas под HiDPI/Retina.
+     * CSS задаёт отображаемый размер (width/height: 100%), JS задаёт только буфер.
+     * Читаем clientWidth/Height (размер отображения из CSS) и ставим буфер × dpr.
+     */
+    EarthView.prototype._setupCanvasSize = function() {
+        // clientWidth/Height = размер отображения, заданный CSS (100% контейнера)
+        const displayWidth = this.canvas.clientWidth;
+        const displayHeight = this.canvas.clientHeight;
+        if (displayWidth <= 0 || displayHeight <= 0) { return; }
+
+        const dpr = window.devicePixelRatio || 1;
+        const backingWidth = Math.round(displayWidth * dpr);
+        const backingHeight = Math.round(displayHeight * dpr);
+
+        // Устанавливаем только буфер, НЕ style (style задан CSS)
+        if (this.canvas.width !== backingWidth || this.canvas.height !== backingHeight) {
+            this.canvas.width = backingWidth;
+            this.canvas.height = backingHeight;
+            this.width = backingWidth;
+            this.height = backingHeight;
+        }
+    };
 
     // ========== Проекция координат ==========
 
@@ -151,6 +189,35 @@
             });
     };
 
+    /**
+     * Загрузка границ РФ
+     * @param {string} url - URL GeoJSON файла
+     * @returns {Promise}
+     */
+    EarthView.prototype.loadRussiaBorders = function(url) {
+        const self = this;
+        url = url || this.options.russiaBordersUrl;
+
+        return fetch(url)
+            .then(function(response) {
+                if (!response.ok) {
+                    throw new Error('Ошибка загрузки границ РФ: ' + response.status);
+                }
+                return response.json();
+            })
+            .then(function(data) {
+                self.russiaData = data;
+                // eslint-disable-next-line no-console
+                console.log('EarthView: загружены границы РФ');
+                return data;
+            })
+            .catch(function(error) {
+                // eslint-disable-next-line no-console
+                console.warn('EarthView: границы РФ не загружены:', error.message);
+                return null;
+            });
+    };
+
     // ========== Отрисовка ==========
 
     /**
@@ -172,17 +239,21 @@
             this._drawCoastlines();
         }
 
+        if (this.options.showRussiaBorders && this.russiaData) {
+            this._drawRussiaBorders();
+        }
+
         // Столицы мира
         this._drawCities();
 
-        // Орбита (ground track)
-        if (this.satellite.groundTrack.length > 0) {
+        // Наземная трасса спутника
+        if (this._hasGroundTrack()) {
             this._drawGroundTrack();
         }
 
-        // Круг видимости спутника (footprint)
-        if (this.options.showFootprint && this.satellite.position) {
-            this._drawFootprint();
+        // Зона видимости спутника (с сервера; если нет — не рисуем)
+        if (this.options.showFootprint && this.satellite.visibilityZone && this.satellite.visibilityZone.length > 0) {
+            this._drawVisibilityZone();
         }
 
         // Наблюдатель
@@ -303,15 +374,14 @@
             const city = this.cities[i];
             const p = this.project(city.lon, city.lat);
 
-            // Красный кружок без заливки (маленький)
+            // Кружок с мягкой заливкой (маленький)
             ctx.beginPath();
-            ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
-            ctx.strokeStyle = '#ff0000';
-            ctx.lineWidth = 1;
-            ctx.stroke();
+            ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+            ctx.fillStyle = '#cc6666';
+            ctx.fill();
 
             // Название города белым (мелкий шрифт)
-            ctx.font = '8px monospace';
+            ctx.font = 'bold 11px sans-serif';
             ctx.fillStyle = '#ffffff';
             ctx.textAlign = 'left';
             ctx.textBaseline = 'middle';
@@ -359,20 +429,102 @@
     };
 
     /**
-     * Отрисовка ground track орбиты
+     * Отрисовка границ РФ и подписи «Россия»
+     */
+    EarthView.prototype._drawRussiaBorders = function() {
+        if (!this.russiaData || !this.russiaData.features || this.russiaData.features.length === 0) {
+            return;
+        }
+
+        const ctx = this.ctx;
+        ctx.strokeStyle = this.colors.russiaBorder || '#ffcc00';
+        ctx.lineWidth = 1.5;
+
+        for (let f = 0; f < this.russiaData.features.length; f++) {
+            const feature = this.russiaData.features[f];
+            const geom = feature.geometry;
+            if (!geom || !geom.coordinates) { continue; }
+
+            if (geom.type === 'Polygon') {
+                this._drawLineString(geom.coordinates[0]);
+            } else if (geom.type === 'MultiPolygon') {
+                for (let p = 0; p < geom.coordinates.length; p++) {
+                    const ring = geom.coordinates[p][0];
+                    if (ring && ring.length >= 2) {
+                        this._drawLineString(ring);
+                    }
+                }
+            }
+        }
+
+        // Подпись «Россия» — в центре территории (приблизительно 95°E, 60°N)
+        const labelLon = 95;
+        const labelLat = 60;
+        const labelPoint = this.project(labelLon, labelLat);
+        ctx.font = 'bold 14px sans-serif';
+        ctx.fillStyle = this.colors.russiaLabel || '#ffffff';
+        ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+        ctx.lineWidth = 3;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const text = 'Россия';
+        ctx.strokeText(text, labelPoint.x, labelPoint.y);
+        ctx.fillText(text, labelPoint.x, labelPoint.y);
+    };
+
+    /**
+     * Проверка наличия данных трассы (массив точек или формат с сервера {past, future}).
+     */
+    EarthView.prototype._hasGroundTrack = function() {
+        const track = this.satellite.groundTrack;
+        if (Array.isArray(track)) {
+            return track.length > 0;
+        }
+        if (track && typeof track === 'object' && (track.past || track.future)) {
+            const pastLen = (track.past && track.past.length) ? track.past.reduce(function(s, seg) { return s + seg.length; }, 0) : 0;
+            const futureLen = (track.future && track.future.length) ? track.future.reduce(function(s, seg) { return s + seg.length; }, 0) : 0;
+            return pastLen > 0 || futureLen > 0;
+        }
+        return false;
+    };
+
+    /**
+     * Отрисовка наземной трассы спутника.
+     * Поддерживает формат с сервера {past: [[...]], future: [[...]]} и плоский массив.
      */
     EarthView.prototype._drawGroundTrack = function() {
         const track = this.satellite.groundTrack;
 
-        if (track.length < 2) { return; }
+        if (Array.isArray(track)) {
+            if (track.length >= 2) {
+                this._drawTrackSegment(track, this.colors.orbitFuture);
+            }
+            return;
+        }
 
-        // Отрисовка всей орбиты зелёным
-        this._drawTrackSegment(track, this.colors.orbitFuture);
+        if (track && track.past) {
+            for (let i = 0; i < track.past.length; i++) {
+                const seg = track.past[i];
+                if (seg && seg.length >= 2) {
+                    this.ctx.setLineDash([4, 4]);
+                    this._drawTrackSegment(seg, this.colors.orbitPast);
+                    this.ctx.setLineDash([]);
+                }
+            }
+        }
+        if (track && track.future) {
+            for (let j = 0; j < track.future.length; j++) {
+                const segF = track.future[j];
+                if (segF && segF.length >= 2) {
+                    this._drawTrackSegment(segF, this.colors.orbitFuture);
+                }
+            }
+        }
     };
 
     /**
      * Отрисовка сегмента орбиты
-     * @param {Array} points - Массив точек [{lon, lat, time}]
+     * @param {Array} points - Массив точек [{lon, lat, time} или {lon, lat, ts}]
      * @param {string} color - Цвет линии
      */
     EarthView.prototype._drawTrackSegment = function(points, color) {
@@ -383,14 +535,15 @@
         // Отрисовка линии
         if (mode === 'line' || mode === 'both') {
             ctx.strokeStyle = color;
-            ctx.lineWidth = 0.5; // Очень тонкая линия
+            ctx.lineWidth = 1.5;
             ctx.beginPath();
 
             let prevP = null;
             let moved = false;
 
             for (let i = 0; i < points.length; i++) {
-                const p = this.project(points[i].lon, points[i].lat);
+                const pt = points[i];
+                const p = this.project(pt.lon, pt.lat);
 
                 // Проверка на пересечение антимеридиана
                 if (prevP && Math.abs(p.x - prevP.x) > this.width / 2) {
@@ -417,15 +570,15 @@
             ctx.fillStyle = this.colors.orbitDots; // Жёлтый
             let lastDotTime = -Infinity;
 
-            for (let i = 0; i < points.length; i++) {
-                const point = points[i];
-                // Рисуем точку каждую минуту
-                if (point.time - lastDotTime >= dotInterval) {
-                    const p = this.project(point.lon, point.lat);
+            for (let k = 0; k < points.length; k++) {
+                const point = points[k];
+                const t = point.ts !== null ? point.ts : point.time;
+                if (t - lastDotTime >= dotInterval) {
+                    const pp = this.project(point.lon, point.lat);
                     ctx.beginPath();
-                    ctx.arc(p.x, p.y, 1, 0, Math.PI * 2); // Очень маленькие точки
+                    ctx.arc(pp.x, pp.y, 2.5, 0, Math.PI * 2); // Очень маленькие точки
                     ctx.fill();
-                    lastDotTime = point.time;
+                    lastDotTime = t;
                 }
             }
         }
@@ -439,38 +592,57 @@
         const pos = this.satellite.position;
         const p = this.project(pos.lon, pos.lat);
 
+        // Масштаб для HiDPI (буфер увеличен на dpr, значит пиксели нужно масштабировать)
+        const dpr = window.devicePixelRatio || 1;
+        const s = dpr * 1.2; // базовый множитель для увеличения
+
         ctx.strokeStyle = this.colors.satellite;
         ctx.fillStyle = this.colors.satellite;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 2 * s;
+
+        // Неоновая обводка (glow эффект)
+        ctx.shadowColor = '#ff00ff'; // magenta неоновый
+        ctx.shadowBlur = 4 * s;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
 
         // Иконка спутника в стиле STSPLUS (упрощённая МКС)
         // Центральный модуль
-        ctx.fillRect(p.x - 2, p.y - 6, 4, 12);
+        ctx.fillRect(p.x - 3 * s, p.y - 8 * s, 6 * s, 16 * s);
 
         // Солнечные панели (горизонтальные)
-        ctx.fillRect(p.x - 12, p.y - 2, 8, 4);
-        ctx.fillRect(p.x + 4, p.y - 2, 8, 4);
+        ctx.fillRect(p.x - 16 * s, p.y - 3 * s, 10 * s, 6 * s);
+        ctx.fillRect(p.x + 6 * s, p.y - 3 * s, 10 * s, 6 * s);
 
         // Дополнительные элементы панелей
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 1.5 * s;
         ctx.beginPath();
-        ctx.moveTo(p.x - 12, p.y);
-        ctx.lineTo(p.x - 14, p.y - 3);
-        ctx.moveTo(p.x - 12, p.y);
-        ctx.lineTo(p.x - 14, p.y + 3);
-        ctx.moveTo(p.x + 12, p.y);
-        ctx.lineTo(p.x + 14, p.y - 3);
-        ctx.moveTo(p.x + 12, p.y);
-        ctx.lineTo(p.x + 14, p.y + 3);
+        ctx.moveTo(p.x - 16 * s, p.y);
+        ctx.lineTo(p.x - 19 * s, p.y - 4 * s);
+        ctx.moveTo(p.x - 16 * s, p.y);
+        ctx.lineTo(p.x - 19 * s, p.y + 4 * s);
+        ctx.moveTo(p.x + 16 * s, p.y);
+        ctx.lineTo(p.x + 19 * s, p.y - 4 * s);
+        ctx.moveTo(p.x + 16 * s, p.y);
+        ctx.lineTo(p.x + 19 * s, p.y + 4 * s);
         ctx.stroke();
 
-        // Название спутника
+        // Сброс свечения
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+
+        // Название спутника — цвет и обводка (без фона)
         if (this.satellite.name) {
-            ctx.font = 'bold 11px monospace';
-            ctx.fillStyle = this.colors.textPrimary;
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'bottom';
-            ctx.fillText(this.satellite.name, p.x + 18, p.y - 4);
+            const fontSize = Math.round(12 * s);
+            ctx.font = 'bold ' + fontSize + 'px monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            const labelY = p.y + 12 * s;
+            ctx.strokeStyle = this.colors.satLabelStroke || 'rgba(0,0,0,0.85)';
+            ctx.lineWidth = 2.5;
+            ctx.strokeText(this.satellite.name, p.x, labelY);
+            ctx.fillStyle = this.colors.satLabel || '#ffeb3b';
+            ctx.fillText(this.satellite.name, p.x, labelY);
         }
     };
 
@@ -481,90 +653,79 @@
         const ctx = this.ctx;
         const p = this.project(this.observer.lon, this.observer.lat);
 
-        // Оранжевый треугольник
-        const size = 5;
-        ctx.fillStyle = '#ffaa00'; // Оранжевый
-        ctx.strokeStyle = '#ff6600'; // Более тёмный оранжевый для обводки
-        ctx.lineWidth = 1;
+        // Треугольник
+        const size = 8;
         ctx.beginPath();
-        ctx.moveTo(p.x, p.y - size); // Вершина
-        ctx.lineTo(p.x - size, p.y + size); // Левый нижний угол
-        ctx.lineTo(p.x + size, p.y + size); // Правый нижний угол
+        ctx.moveTo(p.x, p.y - size); // вершина
+        ctx.lineTo(p.x - size, p.y + size); // нижний левый
+        ctx.lineTo(p.x + size, p.y + size); // нижний правый
         ctx.closePath();
+        ctx.fillStyle = this.colors.observerLabel || '#ff9500';
+        ctx.strokeStyle = this.colors.observerLabelStroke || 'rgba(0,0,0,0.9)';
+        ctx.lineWidth = 1;
         ctx.fill();
         ctx.stroke();
 
-        // Название белым цветом
+        // Название точки наблюдения — белый цвет
         if (this.observer.name) {
-            ctx.font = 'bold 10px monospace';
-            ctx.fillStyle = '#ffffff'; // Белый текст
+            const obsText = this.observer.name.toLocaleUpperCase();
+            ctx.font = 'bold 12px sans-serif';
             ctx.textAlign = 'left';
             ctx.textBaseline = 'middle';
-            ctx.fillText(this.observer.name, p.x + size + 4, p.y);
+            const labelX = p.x + size + 3;
+            ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+            ctx.lineWidth = 2;
+            ctx.strokeText(obsText, labelX, p.y);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(obsText, labelX, p.y);
         }
     };
 
     /**
-     * Отрисовка круга видимости спутника (footprint)
-     * Радиус видимости зависит от высоты орбиты
+     * Отрисовка зоны видимости спутника.
+     * Сервер присылает готовые сегменты (замкнутые полигоны, разбитые по ±180°).
+     * Каждый сегмент рисуется как замкнутый контур с заливкой.
      */
-    EarthView.prototype._drawFootprint = function() {
+    EarthView.prototype._drawVisibilityZone = function() {
         const ctx = this.ctx;
-        const pos = this.satellite.position;
+        const segments = this.satellite.visibilityZone;
 
-        // Расчёт углового радиуса видимости
-        // Формула: cos(rho) = R_earth / (R_earth + altitude)
-        const R_EARTH = 6371; // км
-        const altitude = pos.alt || 420; // Высота орбиты (по умолчанию МКС ~420 км)
-        const rho = Math.acos(R_EARTH / (R_EARTH + altitude)) * 180 / Math.PI;
+        if (!segments || segments.length === 0) { return; }
 
-        // Рисуем круг видимости пунктирной линией
-        ctx.strokeStyle = this.colors.footprint;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 5]);
+        const dpr = window.devicePixelRatio || 1;
 
-        ctx.beginPath();
+        for (let k = 0; k < segments.length; k++) {
+            const seg = segments[k];
+            if (!seg || seg.length < 3) { continue; }
 
-        // Генерируем точки окружности
-        const numPoints = 72; // Точек для плавного круга
-        let prevP = null;
-
-        for (let i = 0; i <= numPoints; i++) {
-            const angle = (i / numPoints) * 360;
-            const angleRad = angle * Math.PI / 180;
-
-            // Вычисляем точку на окружности (сферическая геометрия)
-            const latRad = pos.lat * Math.PI / 180;
-            const rhoRad = rho * Math.PI / 180;
-
-            const pointLat = Math.asin(
-                Math.sin(latRad) * Math.cos(rhoRad) +
-                Math.cos(latRad) * Math.sin(rhoRad) * Math.cos(angleRad)
-            ) * 180 / Math.PI;
-
-            const pointLon = pos.lon + Math.atan2(
-                Math.sin(angleRad) * Math.sin(rhoRad) * Math.cos(latRad),
-                Math.cos(rhoRad) - Math.sin(latRad) * Math.sin(pointLat * Math.PI / 180)
-            ) * 180 / Math.PI;
-
-            const p = this.project(pointLon, pointLat);
-
-            // Проверка на пересечение антимеридиана
-            if (prevP && Math.abs(p.x - prevP.x) > this.width / 2) {
-                ctx.stroke();
-                ctx.beginPath();
-                ctx.moveTo(p.x, p.y);
-            } else if (i === 0) {
-                ctx.moveTo(p.x, p.y);
-            } else {
-                ctx.lineTo(p.x, p.y);
+            // Проецируем точки сегмента
+            const projected = [];
+            for (let i = 0; i < seg.length; i++) {
+                projected.push(this.project(seg[i].lon, seg[i].lat));
             }
 
-            prevP = p;
-        }
+            // Заливка
+            ctx.beginPath();
+            ctx.moveTo(projected[0].x, projected[0].y);
+            for (let j = 1; j < projected.length; j++) {
+                ctx.lineTo(projected[j].x, projected[j].y);
+            }
+            ctx.closePath();
+            ctx.fillStyle = this.colors.footprintFill;
+            ctx.fill();
 
-        ctx.stroke();
-        ctx.setLineDash([]); // Сброс пунктира
+            // Контур
+            ctx.strokeStyle = this.colors.footprint;
+            ctx.lineWidth = 1.5 * dpr;
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.moveTo(projected[0].x, projected[0].y);
+            for (let m = 1; m < projected.length; m++) {
+                ctx.lineTo(projected[m].x, projected[m].y);
+            }
+            ctx.closePath();
+            ctx.stroke();
+        }
     };
 
     // ========== API методы ==========
@@ -575,7 +736,19 @@
      */
     EarthView.prototype.init = function() {
         const self = this;
-        return this.loadCoastlines().then(function() {
+        this._setupCanvasSize();
+        if (typeof ResizeObserver !== 'undefined') {
+            this._resizeObserver = new ResizeObserver(function() {
+                self._onResize();
+            });
+            this._resizeObserver.observe(this.canvas.parentElement);
+        } else {
+            window.addEventListener('resize', this._boundResize);
+        }
+        return Promise.all([
+            this.loadCoastlines(),
+            this.loadRussiaBorders()
+        ]).then(function() {
             self.draw();
             return self;
         });
@@ -602,15 +775,36 @@
     };
 
     /**
-     * Установка ground track орбиты
-     * @param {Array} points - Массив точек [{lon, lat, time}]
+     * Установка наземной трассы спутника.
+     * Принимает формат с сервера {past: [[{lon, lat, ts}...]], future: [[...]]}
+     * или плоский массив точек [{lon, lat, time}].
+     * @param {Array|Object} data - Массив точек или объект {past, future}
      */
-    EarthView.prototype.setGroundTrack = function(points) {
-        this.satellite.groundTrack = points || [];
+    EarthView.prototype.setGroundTrack = function(data) {
+        if (!data) {
+            this.satellite.groundTrack = [];
+            return;
+        }
+        if (Array.isArray(data)) {
+            this.satellite.groundTrack = data;
+            return;
+        }
+        this.satellite.groundTrack = {
+            past: data.past || [],
+            future: data.future || []
+        };
     };
 
     /**
-     * Добавление точки к ground track
+     * Установка зоны видимости спутника (сегменты с сервера).
+     * @param {Array} segments - Массив сегментов [[{lon, lat}, ...], ...]
+     */
+    EarthView.prototype.setVisibilityZone = function(segments) {
+        this.satellite.visibilityZone = Array.isArray(segments) ? segments : null;
+    };
+
+    /**
+     * Добавление точки к наземной трассе спутника
      * @param {number} lon - Долгота
      * @param {number} lat - Широта
      * @param {number} time - Время (timestamp)
@@ -624,7 +818,7 @@
     };
 
     /**
-     * Очистка ground track
+     * Очистка наземной трассы спутника
      */
     EarthView.prototype.clearGroundTrack = function() {
         this.satellite.groundTrack = [];
@@ -641,172 +835,11 @@
     };
 
     /**
-     * Обработчик изменения размера
+     * Обработчик изменения размера (поддержка HiDPI: пересчёт буфера и отрисовка)
      */
     EarthView.prototype._onResize = function() {
-        this.width = this.canvas.width;
-        this.height = this.canvas.height;
+        this._setupCanvasSize();
         this.draw();
-    };
-
-    /**
-     * Демо-анимация движения спутника
-     * @param {number} speed - Скорость (множитель времени, 1 = реальное время)
-     */
-    EarthView.prototype.startDemo = function(speed) {
-        const self = this;
-        speed = speed || 1;
-
-        // Тестовые данные МКС-подобной орбиты
-        this.setSatelliteInfo('ISS', 25544);
-        // Ростов-на-Дону
-        this.setObserver(39.7, 47.23, 'Rostov-on-Don');
-
-        const inclination = 51.6; // Наклонение орбиты МКС (градусы)
-        const orbitalPeriod = 92 * 60 * 1000; // Период орбиты в мс (~92 минуты)
-        const revolutions = this.options.orbitRevolutions || 3; // Количество витков
-
-        // Время симуляции
-        let simTime = Date.now();
-        let lastTrackUpdateTime = 0;
-        let currentPointIndex = 0;
-
-        // Функция расчёта позиции спутника по времени
-        function calcPosition(time) {
-            // Угловая скорость (градусов в мс)
-            const angularSpeed = 360 / orbitalPeriod;
-            // Текущий угол на орбите
-            const angle = (time * angularSpeed) % 360;
-            // Долгота (учитываем вращение Земли: -360°/24ч)
-            const earthRotation = (time / (24 * 60 * 60 * 1000)) * 360;
-            const lon = (angle - earthRotation) % 360;
-            // Нормализация долготы
-            const normalizedLon = lon > 180 ? lon - 360 : (lon < -180 ? lon + 360 : lon);
-            // Широта (синусоида с наклонением)
-            const lat = inclination * Math.sin(angle * Math.PI / 180);
-
-            return { lon: normalizedLon, lat: lat };
-        }
-
-        // Генерация статичной орбиты на несколько витков вперёд
-        function generateTrack(baseTime) {
-            self.clearGroundTrack();
-
-            // Генерируем орбиту: только вперёд на 3 витка
-            const futureDuration = orbitalPeriod * revolutions;
-            const step = 30000; // Шаг 30 секунд для плавности
-
-            for (let dt = 0; dt <= futureDuration; dt += step) {
-                const time = baseTime + dt;
-                const pos = calcPosition(time);
-                self.addTrackPoint(pos.lon, pos.lat, time);
-            }
-
-            lastTrackUpdateTime = baseTime;
-            currentPointIndex = 0; // Начинаем с первой точки
-        }
-
-        // Поиск ближайшей точки на орбите для текущего времени
-        function findCurrentPointIndex() {
-            const track = self.satellite.groundTrack;
-            for (let i = 0; i < track.length; i++) {
-                if (track[i].time >= simTime) {
-                    return Math.max(0, i - 1);
-                }
-            }
-            return track.length - 1;
-        }
-
-        function animate() {
-            // Обновление симулированного времени (медленнее)
-            simTime += 200 * speed; // +0.2 секунды * speed за кадр (~12x реального времени)
-
-            // Проверяем, нужно ли обновить орбиту (каждый виток)
-            const timeSinceUpdate = simTime - lastTrackUpdateTime;
-            if (timeSinceUpdate > orbitalPeriod * 0.9) {
-                // Спутник близко к концу отображаемой орбиты - обновляем
-                generateTrack(simTime);
-            }
-
-            // Движение спутника по точкам орбиты
-            const track = self.satellite.groundTrack;
-            if (track.length > 0) {
-                // Находим текущую точку на орбите
-                currentPointIndex = findCurrentPointIndex();
-
-                if (currentPointIndex < track.length) {
-                    const point = track[currentPointIndex];
-                    self.setSatellitePosition(point.lon, point.lat, 420);
-                }
-            }
-
-            self.draw();
-            self.updateInfoPanel(simTime);
-            self._animationId = requestAnimationFrame(animate);
-        }
-
-        if (this._animationId) {
-            cancelAnimationFrame(this._animationId);
-        }
-
-        // Генерируем орбиту один раз при старте
-        generateTrack(simTime);
-        animate();
-    };
-
-    /**
-     * Обновление информационной панели
-     * @param {number} simTime - Симулированное время
-     */
-    EarthView.prototype.updateInfoPanel = function(simTime) {
-        const pos = this.satellite.position;
-        if (!pos) { return; }
-
-        // Обновляем элементы если они существуют
-        const elName = document.getElementById('info-name');
-        const elNorad = document.getElementById('info-norad');
-        const elLat = document.getElementById('info-lat');
-        const elLon = document.getElementById('info-lon');
-        const elAlt = document.getElementById('info-alt');
-        const elObserver = document.getElementById('info-observer');
-        const elTime = document.getElementById('info-time');
-
-        if (elName) { elName.textContent = this.satellite.name || 'Unknown'; }
-        if (elNorad) { elNorad.textContent = this.satellite.noradId || '-----'; }
-
-        if (elLat) {
-            const latDir = pos.lat >= 0 ? 'N' : 'S';
-            elLat.textContent = Math.abs(pos.lat).toFixed(2) + '°' + latDir;
-        }
-        if (elLon) {
-            const lonDir = pos.lon >= 0 ? 'E' : 'W';
-            elLon.textContent = Math.abs(pos.lon).toFixed(2) + '°' + lonDir;
-        }
-        if (elAlt) {
-            elAlt.textContent = (pos.alt || 420).toFixed(0) + ' km';
-        }
-
-        if (elObserver && this.observer) {
-            elObserver.textContent = this.observer.name || 'Unknown';
-        }
-
-        if (elTime) {
-            const date = new Date(simTime);
-            const hours = date.getUTCHours().toString().padStart(2, '0');
-            const mins = date.getUTCMinutes().toString().padStart(2, '0');
-            const secs = date.getUTCSeconds().toString().padStart(2, '0');
-            elTime.textContent = hours + ':' + mins + ':' + secs;
-        }
-    };
-
-    /**
-     * Остановка демо-анимации
-     */
-    EarthView.prototype.stopDemo = function() {
-        if (this._animationId) {
-            cancelAnimationFrame(this._animationId);
-            this._animationId = null;
-        }
     };
 
     // Экспорт

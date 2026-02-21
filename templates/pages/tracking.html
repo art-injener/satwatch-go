@@ -4,65 +4,109 @@
     <section class="map-column">
         <div class="earth-view-container">
             <canvas id="earth-view" width="800" height="400"></canvas>
+            <!-- Оверлей при смене спутника -->
+            <div id="tracking-overlay" class="tracking-overlay hidden">
+                <div class="tracking-overlay-content">
+                    <div class="tracking-spinner"></div>
+                    <div class="tracking-overlay-text">
+                        Берём на сопровождение
+                    </div>
+                    <div class="tracking-overlay-sat" id="tracking-overlay-sat">
+                        NORAD <span id="tracking-overlay-norad">---</span>
+                    </div>
+                    <div class="tracking-overlay-name" id="tracking-overlay-name">---</div>
+                </div>
+            </div>
         </div>
-        <!-- Панель информации о спутнике -->
-        <div class="satellite-info-panel" id="satellite-info">
-            <div class="info-row">
-                <span class="info-cell">
-                    <span class="info-label">NORAD</span>
-                    <span class="info-value" id="info-norad">25544</span>
-                </span>
-                <span class="info-cell info-cell-name">
-                    <span class="info-value info-value-accent" id="info-name">ISS Space Station</span>
-                </span>
-                <span class="info-cell">
-                    <span class="info-label">UTC</span>
-                    <span class="info-value" id="info-time">--:--:--</span>
-                </span>
-                <span class="info-cell">
-                    <span class="info-label">Observer</span>
-                    <span class="info-value" id="info-observer">Rostov-on-Don</span>
-                </span>
+        <!-- InfoPanel: столбики с параметрами спутника -->
+        <div class="info-panel" id="info-panel">
+            <!-- 5 столбиков-карточек -->
+            <div class="info-panel__columns">
+                <!-- Столбик 1: Спутник -->
+                <div class="info-card">
+                    <div class="info-card__title">Спутник</div>
+                    <div class="info-card__body">
+                        <div class="info-row"><span class="info-label">NORAD</span><span class="info-value" id="ip-norad">---</span></div>
+                        <div class="info-row"><span class="info-label">Имя</span><span class="info-value" id="ip-name">---</span></div>
+                        <div class="info-row"><span class="info-label">Группа</span><span class="info-value" id="ip-group">---</span></div>
+                        <button class="info-panel__track-btn" id="btn-track" title="Взять на сопровождение">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/>
+                            </svg>
+                            Сопровождение
+                        </button>
+                    </div>
+                </div>
+                <!-- Столбик 2: Геоданные -->
+                <div class="info-card">
+                    <div class="info-card__title">Геоданные</div>
+                    <div class="info-card__body">
+                        <div class="info-row"><span class="info-label">Lon</span><span class="info-value" id="ip-lon">---.--°</span></div>
+                        <div class="info-row"><span class="info-label">Lat</span><span class="info-value" id="ip-lat">---.--°</span></div>
+                        <div class="info-row"><span class="info-label">Az</span><span class="info-value" id="ip-az">---°</span></div>
+                        <div class="info-row"><span class="info-label">El</span><span class="info-value" id="ip-el">---°</span></div>
+                        <div class="info-row"><span class="info-label">Alt</span><span class="info-value" id="ip-alt">--- km</span></div>
+                    </div>
+                </div>
+                <!-- Столбик 3: Орбита -->
+                <div class="info-card">
+                    <div class="info-card__title">Орбита</div>
+                    <div class="info-card__body">
+                        <div class="info-row"><span class="info-label">Виток</span><span class="info-value" id="ip-orbit">#---</span></div>
+                        <div class="info-row"><span class="info-label">Период</span><span class="info-value" id="ip-period">#---</span></div>
+                        <div class="info-row"><span class="info-label">Склонение</span><span class="info-value" id="ip-incl">#---°</span></div>
+                        <div class="info-row"><span class="info-label">Статус</span><span class="info-value" id="ip-status">--</span></div>
+                    </div>
+                </div>
+                <!-- Столбик 4: Пролёт -->
+                <div class="info-card">
+                    <div class="info-card__title">Пролёт</div>
+                    <div class="info-card__body">
+                        <div class="info-row"><span class="info-label">AOS</span><span class="info-value" id="ip-aos">--:--:--</span></div>
+                        <div class="info-row"><span class="info-label">TCA</span><span class="info-value" id="ip-tca">--:--:--</span></div>
+                        <div class="info-row"><span class="info-label">LOS</span><span class="info-value" id="ip-los">--:--:--</span></div>
+                        <div class="info-row"><span class="info-label">Длительность</span><span class="info-value" id="ip-dur">--:--</span></div>
+                    </div>
+                </div>
+                <!-- Столбик 5: Радиотехнические характеристики радиолинии-->
+                <div class="info-card">
+                    <div class="info-card__title">Радиолиния</div>
+                    <div class="info-card__body">
+                        <div class="info-row"><span class="info-label">ТМИ</span><span class="info-value" id="ip-tmi">--- MHz</span></div>
+                        <div class="info-row"><span class="info-label">Uplink</span><span class="info-value" id="ip-uplink">--- MHz</span></div>
+                        <div class="info-row"><span class="info-label">Downlink</span><span class="info-value" id="ip-downlink">--- MHz</span></div>
+                        <div class="info-row"><span class="info-label">Модуляция</span><span class="info-value" id="ip-mod">---</span></div>
+                    </div>
+                </div>
             </div>
-            <div class="info-row">
-                <span class="info-cell">
-                    <span class="info-label">Incl</span>
-                    <span class="info-value" id="info-orbit">51.64°</span>
-                </span>
-                <span class="info-cell">
-                    <span class="info-label">Period</span>
-                    <span class="info-value" id="info-period">92.5 min</span>
-                </span>
-                <span class="info-cell">
-                    <span class="info-label">Lat</span>
-                    <span class="info-value info-value-accent" id="info-lat">---.--°</span>
-                </span>
-                <span class="info-cell">
-                    <span class="info-label">Lon</span>
-                    <span class="info-value info-value-accent" id="info-lon">---.--°</span>
-                </span>
-                <span class="info-cell">
-                    <span class="info-label">Alt</span>
-                    <span class="info-value info-value-accent" id="info-alt">--- km</span>
-                </span>
-            </div>
-            <div class="simulation-badge">ИМИТАЦИЯ</div>
         </div>
     </section>
 
     <!-- Правая колонка: графики в вертикальный столбик -->
     <section class="charts-column">
         <div class="azimuth-container">
-            <h3>Азимут</h3>
             <canvas id="azimuth-view" width="300" height="300"></canvas>
         </div>
         <div class="sky-view-container">
             <canvas id="sky-view" width="300" height="350"></canvas>
         </div>
         <div class="elevation-container">
-            <h3>Угол места</h3>
-            <canvas id="elevation-view" width="300" height="250"></canvas>
+            <canvas id="elevation-view" width="300" height="280"></canvas>
         </div>
     </section>
+</div>
+
+<!-- Модальное окно подтверждения завершения сеанса -->
+<div id="track-end-session-modal" class="modal modal--hidden" role="dialog" aria-labelledby="track-end-session-title" aria-modal="true">
+    <div class="modal__backdrop" id="track-end-session-backdrop"></div>
+    <div class="modal__box">
+        <p id="track-end-session-title" class="modal__text">
+            В данный момент идёт сеанс приёма данных от КА.<br> Вы действительно хотите завершить сеанс?
+        </p>
+        <div class="modal__actions">
+            <button type="button" class="modal__btn modal__btn--primary" id="track-end-session-yes">Да</button>
+            <button type="button" class="modal__btn modal__btn--secondary" id="track-end-session-no">Нет</button>
+        </div>
+    </div>
 </div>
 {{end}}

@@ -1,0 +1,215 @@
+/* ===== InfoPanel: столбики-карточки с параметрами спутника ===== */
+
+.info-panel {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    overflow: hidden;
+}
+
+/* Кнопка "Сопровождение" */
+.info-panel__track-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    margin-top: 6px;
+    padding: 4px 10px;
+    width: 100%;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--accent-primary);
+    background: rgba(0, 212, 170, 0.1);
+    border: 1px solid rgba(0, 212, 170, 0.4);
+    cursor: pointer;
+    white-space: nowrap;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: all 0.15s ease;
+}
+
+.info-panel__track-btn svg {
+    flex-shrink: 0;
+}
+
+.info-panel__track-btn:hover {
+    background: rgba(0, 212, 170, 0.2);
+    border-color: var(--accent-primary);
+}
+
+.info-panel__track-btn:active {
+    background: rgba(0, 212, 170, 0.3);
+    transform: scale(0.97);
+}
+
+.info-panel__track-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* --- Модальное окно подтверждения завершения сеанса --- */
+.modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    box-sizing: border-box;
+}
+
+.modal.modal--hidden {
+    display: none;
+}
+
+.modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    cursor: pointer;
+}
+
+.modal__box {
+    position: relative;
+    max-width: 450px;
+    width: 100%;
+    padding: 20px 24px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.modal__text {
+    margin: 0 0 20px 0;
+    font-family: var(--font-mono);
+    font-size: 0.95rem;
+    line-height: 1.45;
+    color: var(--text-primary);
+}
+
+.modal__actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+.modal__btn {
+    padding: 8px 18px;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.15s ease;
+}
+
+.modal__btn--primary {
+    color: var(--bg-primary);
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+
+.modal__btn--primary:hover {
+    filter: brightness(1.1);
+}
+
+.modal__btn--secondary {
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+}
+
+.modal__btn--secondary:hover {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+/* --- 5 столбиков-карточек --- */
+.info-panel__columns {
+    display: flex;
+    gap: 8px;
+    padding: 8px 10px;
+}
+
+/* Карточка-столбик */
+.info-card {
+    flex: 1;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    overflow: hidden;
+    min-width: 0;
+}
+
+.info-card__title {
+    padding: 4px 10px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--accent-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    text-align: center;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.info-card__body {
+    padding: 6px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+/* Строка "label — value" внутри карточки */
+.info-card .info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.info-card .info-label {
+    color: #ffffff;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.info-card .info-value {
+    color: #00d4aa;
+    font-size: 1.1rem;
+    font-weight: 600;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* --- Responsive --- */
+@media (max-width: 1200px) {
+    .info-panel__columns {
+        gap: 6px;
+    }
+    .info-card .info-value {
+        font-size: 1.05rem;
+    }
+    .info-card .info-label {
+        font-size: 0.85rem;
+    }
+}
+
+@media (max-width: 900px) {
+    .info-panel__columns {
+        flex-wrap: wrap;
+    }
+    .info-card {
+        flex: 1 1 calc(50% - 5px);
+        min-width: 200px;
+    }
+}

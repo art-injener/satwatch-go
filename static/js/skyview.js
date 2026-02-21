@@ -31,7 +31,7 @@
             showSatelliteAura: true, // Показывать окружность вокруг спутника
             showObserver: true, // Показывать иконку наблюдателя
             azimuthStep: 30, // Шаг меток азимута (30° или 45°)
-            arrowInterval: 120000, // Интервал стрелок на траектории (2 минуты)
+            arrowInterval: 600000, // Интервал стрелок на траектории (10 минут)
             satelliteAuraRadius: 20, // Радиус ауры спутника
             animationSpeed: 1 // Скорость анимации
         }, options || {});
@@ -83,7 +83,7 @@
 
             // Информационный блок
             infoText: '#00d4aa',
-            infoLabel: '#888888',
+            infoLabel: '#ffffff', // Белый для надписей (было #888888)
             timeText: '#00a8ff'
         };
 
@@ -93,6 +93,7 @@
         // Данные спутника
         this.satellite = {
             name: '',
+            noradId: null,
             track: [],
             currentPos: null
         };
@@ -108,7 +109,7 @@
         this.observer = {
             lat: 47.23,
             lon: 39.7,
-            name: 'Rostov-on-Don'
+            name: 'Ростов-на-Дону'
         };
 
         // Анимация
@@ -122,7 +123,7 @@
      */
     SkyView.prototype._updateGeometry = function() {
         const padding = 30; // Отступ для меток азимута
-        const infoPanelHeight = 50; // Высота информационной панели снизу
+        const infoPanelHeight = 55; // Высота информационной панели снизу (увеличена с 50px)
 
         this.infoPanelHeight = infoPanelHeight;
         this.centerX = this.canvas.width / 2;
@@ -440,6 +441,7 @@
     SkyView.prototype._drawTrackArrows = function(points, visibleTrack) {
         const arrowInterval = this.options.arrowInterval;
         let lastArrowTime = points[0].time;
+        let arrowDrawn = false;
 
         for (let i = 1; i < points.length - 1; i++) {
             const point = visibleTrack[i];
@@ -455,7 +457,30 @@
 
                 this._drawArrow(curr.x, curr.y, angle);
                 lastArrowTime = point.time;
+                arrowDrawn = true;
             }
+        }
+
+        // На коротких пролётах рисуем одну стрелку в точке TCA (макс. элевация)
+        if (!arrowDrawn && points.length >= 3) {
+            let midIdx = Math.floor((points.length - 1) / 2); // запасной вариант
+            let maxEl = -Infinity;
+            for (let i = 1; i < points.length - 1; i++) {
+                if (points[i].el > maxEl) {
+                    maxEl = points[i].el;
+                    midIdx = i;
+                }
+            }
+
+            const prev = points[midIdx - 1];
+            const curr = points[midIdx];
+            const next = points[midIdx + 1];
+
+            const dx = next.x - prev.x;
+            const dy = next.y - prev.y;
+            const angle = Math.atan2(dy, dx);
+
+            this._drawArrow(curr.x, curr.y, angle);
         }
     };
 
@@ -691,18 +716,15 @@
         ctx.lineWidth = 1;
         ctx.strokeRect(p.x - size / 2, p.y - size / 2, size, size);
 
-        // Анимация "передачи сигнала" (волны от спутника)
-        this._drawSignalWaves(p.x, p.y);
-
         // Подпись спутника
         if (this.satellite.name) {
             ctx.font = 'bold 10px sans-serif';
             ctx.fillStyle = this.colors.satLabel;
-            ctx.textAlign = 'left';
+            ctx.textAlign = 'center';
             ctx.textBaseline = 'bottom';
             ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
             ctx.shadowBlur = 3;
-            ctx.fillText(this.satellite.name, p.x + size + 5, p.y - 2);
+            ctx.fillText(this.satellite.name, p.x + size + 5, p.y - 10);
             ctx.shadowBlur = 0;
         }
     };
@@ -783,6 +805,9 @@
 
     /**
      * Отрисовка информационной панели внизу
+     * Колонка 1: NORAD ID / Длительность
+     * Колонка 2: AOS / LOS
+     * Колонка 3: Az / El
      */
     SkyView.prototype._drawInfo = function() {
         const ctx = this.ctx;
@@ -792,7 +817,6 @@
         const panelHeight = this.infoPanelHeight;
         const panelY = h - panelHeight;
 
-        // Рамка информационной панели со скруглёнными углами
         const panelPadding = 6;
         const cornerRadius = 8;
 
@@ -804,71 +828,65 @@
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        // Разделительные линии внутри панели
         const col1X = panelPadding + 8;
-        const col2X = w * 0.35;
-        const col3X = w * 0.65;
-        const row1Y = panelY + 18;
-        const row2Y = panelY + 34;
+        const col2X = w * 0.38;
+        const col3X = w * 0.70;
+        const row1Y = panelY + 20; // Увеличено с 18
+        const row2Y = panelY + 40; // Увеличено с 34 (больший отступ между строками)
 
-        // === Левая колонка: Азимут и Угол места ===
-        ctx.font = 'bold 10px monospace';
-        ctx.textBaseline = 'middle';
-
-        // Азимут
-        ctx.textAlign = 'left';
-        ctx.fillStyle = this.colors.infoLabel;
-        ctx.fillText('Az:', col1X, row1Y);
-        ctx.fillStyle = this.colors.infoText;
-        const azText = pos ? pos.az.toFixed(1) + '°' : '---.-°';
-        ctx.fillText(azText, col1X + 25, row1Y);
-
-        // Угол места
-        ctx.fillStyle = this.colors.infoLabel;
-        ctx.fillText('El:', col1X, row2Y);
-        ctx.fillStyle = this.colors.infoText;
-        const elText = pos ? pos.el.toFixed(1) + '°' : '---.-°';
-        ctx.fillText(elText, col1X + 25, row2Y);
-
-        // === Средняя колонка: AOS и LOS времена ===
         const passInfo = this.passInfo;
-        ctx.font = '9px monospace';
 
-        // AOS время
+        // === Колонка 1: NORAD ID и Длительность ===
+        ctx.font = 'bold 12px monospace';
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'left';
+
+        ctx.fillStyle = this.colors.infoLabel;
+        ctx.fillText('ID:', col1X, row1Y);
+        ctx.fillStyle = this.colors.timeText;
+        const noradText = this.satellite.noradId ? String(this.satellite.noradId) : '-----';
+        ctx.fillText(noradText, col1X + 52, row1Y);
+
+        ctx.fillStyle = this.colors.infoLabel;
+        ctx.fillText('Dur:', col1X, row2Y);
+        if (passInfo.aosTime && passInfo.losTime) {
+            const duration = passInfo.losTime - passInfo.aosTime;
+            ctx.fillStyle = this.colors.timeText;
+            ctx.fillText(this._formatDuration(duration), col1X + 35, row2Y);
+        } else {
+            ctx.fillStyle = this.colors.timeText;
+            ctx.fillText('--:--', col1X + 35, row2Y);
+        }
+
+        // === Колонка 2: AOS и LOS времена ===
+        ctx.font = '12px monospace';
+
         ctx.textAlign = 'left';
         ctx.fillStyle = this.colors.aosMarker;
         ctx.fillText('AOS:', col2X, row1Y);
         ctx.fillStyle = this.colors.timeText;
         ctx.fillText(this._formatTime(passInfo.aosTime), col2X + 32, row1Y);
 
-        // LOS время
         ctx.fillStyle = this.colors.losMarker;
         ctx.fillText('LOS:', col2X, row2Y);
         ctx.fillStyle = this.colors.timeText;
         ctx.fillText(this._formatTime(passInfo.losTime), col2X + 32, row2Y);
 
-        // === Правая колонка: Длительность и название спутника ===
-        // Длительность
+        // === Колонка 3: Азимут и Угол места ===
+        ctx.font = 'bold 12px monospace';
+
         ctx.textAlign = 'left';
         ctx.fillStyle = this.colors.infoLabel;
-        ctx.fillText('Dur:', col3X, row1Y);
+        ctx.fillText('Az:', col3X, row1Y);
+        ctx.fillStyle = this.colors.infoText;
+        const azText = pos ? pos.az.toFixed(1) + '°' : '---.-°';
+        ctx.fillText(azText, col3X + 25, row1Y);
 
-        if (passInfo.aosTime && passInfo.losTime) {
-            const duration = passInfo.losTime - passInfo.aosTime;
-            ctx.fillStyle = this.colors.timeText;
-            ctx.fillText(this._formatDuration(duration), col3X + 30, row1Y);
-        } else {
-            ctx.fillStyle = this.colors.timeText;
-            ctx.fillText('--:--', col3X + 30, row1Y);
-        }
-
-        // Название спутника
         ctx.fillStyle = this.colors.infoLabel;
-        ctx.fillText('Sat:', col3X, row2Y);
-        ctx.fillStyle = this.colors.satellite;
-        ctx.font = 'bold 9px monospace';
-        const satName = this.satellite.name || '---';
-        ctx.fillText(satName, col3X + 30, row2Y);
+        ctx.fillText('El:', col3X, row2Y);
+        ctx.fillStyle = this.colors.infoText;
+        const elText = pos ? pos.el.toFixed(1) + '°' : '---.-°';
+        ctx.fillText(elText, col3X + 25, row2Y);
     };
 
     /**
@@ -902,9 +920,14 @@
 
     /**
      * Установка информации о спутнике
+     * @param {string} name - Название спутника
+     * @param {number|string} [noradId] - NORAD ID спутника
      */
-    SkyView.prototype.setSatelliteInfo = function(name) {
+    SkyView.prototype.setSatelliteInfo = function(name, noradId) {
         this.satellite.name = name;
+        if (noradId !== undefined) {
+            this.satellite.noradId = noradId;
+        }
     };
 
     /**
@@ -985,134 +1008,6 @@
         Object.assign(this.colors, colors);
     };
 
-    /**
-     * Демо-режим с симуляцией пролёта
-     */
-    SkyView.prototype.startDemo = function(speed) {
-        const self = this;
-        speed = speed || 1;
-
-        this.setSatelliteInfo('ISS');
-        this._lastAnimTime = Date.now();
-
-        // Параметры симуляции пролёта
-        const passDuration = 10 * 60 * 1000; // 10 минут
-        const startTime = Date.now();
-        let simTime = startTime;
-
-        // Генерация траектории пролёта спутника
-        // Строим ДУГУ на азимутальной проекции (как в SkyRoof)
-        function generatePassTrack(baseTime) {
-            self.clearTrack();
-
-            // Параметры пролёта
-            const maxEl = 30 + Math.random() * 50; // Макс. угол места 30-80°
-            const passDirection = Math.random() * 360; // Направление пролёта (градусы)
-            const passDirectionRad = passDirection * Math.PI / 180;
-
-            // Кривизна дуги (смещение перпендикулярно направлению)
-            // Чем выше maxEl, тем меньше кривизна (более прямой путь)
-            const curvature = 0.2 + Math.random() * 0.3 * (1 - maxEl / 90); // 0.2-0.5, ослаблено при высоком maxEl
-
-            const steps = 60;
-
-            for (let i = 0; i <= steps; i++) {
-                const t = i / steps; // 0 → 1
-                const s = (t - 0.5) * 2; // -1 → 0 → 1
-
-                // Компонента вдоль направления пролёта (линейная)
-                const alongTrack = s * 0.95; // от -0.95 до +0.95 (не доходя до края)
-
-                // Компонента поперёк направления (парабола - создаёт дугу!)
-                // Максимум в центре (s=0), ноль на краях (s=±1)
-                const acrossTrack = curvature * (1 - s * s);
-
-                // Координаты на проекции
-                // alongTrack - вдоль направления пролёта
-                // acrossTrack - перпендикулярно (создаёт изгиб дуги)
-                const projX = alongTrack * Math.sin(passDirectionRad) + acrossTrack * Math.cos(passDirectionRad);
-                const projY = -alongTrack * Math.cos(passDirectionRad) + acrossTrack * Math.sin(passDirectionRad);
-
-                // Радиус на проекции
-                const projRadius = Math.sqrt(projX * projX + projY * projY);
-
-                // Elevation из радиуса: ro=0 → el=90°, ro=1 → el=0°
-                const el = 90 * (1 - Math.min(1, projRadius));
-
-                // Азимут из координат
-                let az = Math.atan2(projX, -projY) * 180 / Math.PI;
-                if (az < 0) {az += 360;}
-
-                const time = baseTime + t * passDuration;
-
-                // Добавляем только видимую часть (el >= 0)
-                if (el >= 0) {
-                    self.addTrackPoint(az, el, time);
-                }
-            }
-        }
-
-        generatePassTrack(simTime);
-
-        function animate() {
-            simTime += 100 * speed;
-
-            const track = self.satellite.track;
-            let currentPos = null;
-
-            for (let i = 0; i < track.length - 1; i++) {
-                if (track[i].time <= simTime && track[i + 1].time > simTime) {
-                    const t1 = track[i];
-                    const t2 = track[i + 1];
-                    const ratio = (simTime - t1.time) / (t2.time - t1.time);
-
-                    let az = t1.az + (t2.az - t1.az) * ratio;
-                    if (Math.abs(t2.az - t1.az) > 180) {
-                        if (t2.az > t1.az) {
-                            az = t1.az + (t2.az - 360 - t1.az) * ratio;
-                        } else {
-                            az = t1.az + (t2.az + 360 - t1.az) * ratio;
-                        }
-                        if (az < 0) {az += 360;}
-                        if (az >= 360) {az -= 360;}
-                    }
-
-                    currentPos = {
-                        az: az,
-                        el: t1.el + (t2.el - t1.el) * ratio
-                    };
-                    break;
-                }
-            }
-
-            if (!currentPos || simTime > track[track.length - 1].time) {
-                simTime = Date.now();
-                generatePassTrack(simTime);
-                currentPos = { az: track[0].az, el: track[0].el };
-            }
-
-            self.setSatellitePosition(currentPos.az, currentPos.el);
-            self.draw();
-
-            self._animationId = requestAnimationFrame(animate);
-        }
-
-        if (this._animationId) {
-            cancelAnimationFrame(this._animationId);
-        }
-
-        animate();
-    };
-
-    /**
-     * Остановка демо
-     */
-    SkyView.prototype.stopDemo = function() {
-        if (this._animationId) {
-            cancelAnimationFrame(this._animationId);
-            this._animationId = null;
-        }
-    };
 
     // Экспорт
     window.SkyView = SkyView;

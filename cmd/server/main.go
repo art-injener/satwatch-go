@@ -12,14 +12,12 @@ import (
 
 	"github.com/art-injener/satellite-scout/internal/config"
 	"github.com/art-injener/satellite-scout/internal/handlers"
-)
-
-const (
-	slogKeyError = "error"
+	"github.com/art-injener/satellite-scout/internal/services"
+	"github.com/art-injener/satellite-scout/internal/tracker"
 )
 
 func main() {
-	// Настройка структурированного логгера
+	// Настройка структурированного логгера.
 	logger := slog.New(slog.NewTextHandler(
 		os.Stdout,
 		&slog.HandlerOptions{
@@ -27,7 +25,7 @@ func main() {
 		}))
 	slog.SetDefault(logger)
 
-	// Загрузка конфигурации
+	// Загрузка конфигурации.
 	cfg := config.Load()
 	slog.Info("configuration loaded",
 		"port", cfg.Port,
@@ -35,50 +33,56 @@ func main() {
 		"observer_lon", cfg.ObserverLon,
 	)
 
-	// Инициализация обработчиков
-	pageHandler, err := handlers.NewPageHandler("templates", true)
-	if err != nil {
-		slog.Error("failed to initialize page handler", slogKeyError, err)
-		os.Exit(1)
+	// Контекст для фоновых сервисов (SSE Hub, TLEStore, Position/Track сервисы).
+	svcCtx, svcCancel := context.WithCancel(context.Background())
+	defer svcCancel()
+
+	// TLEStore — хранилище TLE с автообновлением.
+	tleStore := tracker.NewTLEStore(cfg.TLE)
+	if err := tleStore.Start(svcCtx); err != nil {
+		slog.Error("failed to start TLE store", "error", err)
 	}
 
-	apiHandler := handlers.NewAPIHandler(cfg)
+	// SSE Hub — единая точка рассылки real-time данных.
+	sseHub := handlers.NewSSEHub()
+	go sseHub.Run(svcCtx)
 
+	// Наблюдатель (ObserverAlt в метрах → км).
+	observer := tracker.NewObserver(cfg.ObserverLat, cfg.ObserverLon, cfg.ObserverAlt/1000.0)
+
+	// Сервис отслеживания спутников — позиции (1/сек), трассы (1/30 сек), авто-трекинг (1/10 сек).
+	trackingService := services.NewSatelliteTrackingService(sseHub, tleStore, observer)
+
+	// Сервис пролётов — расчёт и кеширование пролётов спутников.
+	passService := services.NewPassService(tleStore, observer)
+
+	// Связываем trackingService с passService для авто-трекинга.
+	// При старте автоматически выбирается ближайший по расписанию спутник.
+	trackingService.SetPassProvider(passService)
+
+	// Запускаем сервис отслеживания (авто-трекинг включится автоматически).
+	go trackingService.Run(svcCtx)
+
+	// Маршруты.
 	mux := http.NewServeMux()
+	setupRoutes(mux, cfg, sseHub, passService)
 
-	// Статические файлы
-	staticFS := http.FileServer(http.Dir("static"))
-	mux.Handle("GET /static/", http.StripPrefix("/static/", staticFS))
-
-	// Маршруты страниц
-	mux.HandleFunc("GET /", pageHandler.Index)
-	mux.HandleFunc("GET /tracking", pageHandler.Tracking)
-	mux.HandleFunc("GET /receiver", pageHandler.Receiver)
-	mux.HandleFunc("GET /simulation", pageHandler.Simulation)
-
-	// API маршруты
-	mux.HandleFunc("GET /api/health", apiHandler.HealthCheck)
-	mux.HandleFunc("GET /api/config", apiHandler.GetConfig)
-
-	// Частичные шаблоны (HTMX)
-	mux.HandleFunc("GET /partials/passes", func(w http.ResponseWriter, r *http.Request) {
-		// TODO: реализовать частичный шаблон таблицы пролётов
-		w.Header().Set("Content-Type", "text/html")
-		if _, err := w.Write([]byte(`<p class="empty-state">Нет запланированных пролётов</p>`)); err != nil {
-			slog.Error("failed to write response", slogKeyError, err)
-		}
-	})
-
-	// Создание сервера с таймаутами
+	// HTTP-сервер.
+	// WriteTimeout не устанавливается глобально, т.к. он убивает SSE-соединения.
+	// Таймауты для обычных запросов управляются через middleware/context.
 	server := &http.Server{
-		Addr:         cfg.Addr(),
-		Handler:      loggingMiddleware(mux),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:        cfg.Addr(),
+		Handler:     loggingMiddleware(mux),
+		ReadTimeout: 15 * time.Second,
+		IdleTimeout: 120 * time.Second, // Увеличен для SSE
 	}
 
-	// Канал для сигнализации об ошибках сервера
+	// Запуск и graceful shutdown.
+	run(server, sseHub, tleStore, svcCancel)
+}
+
+// run запускает HTTP-сервер и обрабатывает graceful shutdown.
+func run(server *http.Server, sseHub *handlers.SSEHub, tleStore *tracker.TLEStore, svcCancel context.CancelFunc) {
 	serverErr := make(chan error, 1)
 
 	go func() {
@@ -88,64 +92,48 @@ func main() {
 		}
 	}()
 
-	// Ожидание сигнала прерывания или ошибки сервера
+	// Ожидание сигнала прерывания или ошибки сервера.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	select {
 	case err := <-serverErr:
-		slog.Error("server error", slogKeyError, err)
+		slog.Error("server error", "error", err)
 		os.Exit(1)
 	case sig := <-quit:
 		slog.Info("received shutdown signal", "signal", sig)
 	}
 
+	shutdown(server, sseHub, tleStore, svcCancel)
+}
+
+// shutdown выполняет graceful shutdown: фоновые сервисы → TLEStore → SSE Hub → HTTP-сервер.
+func shutdown(server *http.Server, sseHub *handlers.SSEHub, tleStore *tracker.TLEStore, svcCancel context.CancelFunc) {
 	slog.Info("shutting down server...")
 
+	// Останавливаем фоновые сервисы (PositionService, TrackService останавливаются по ctx).
+	svcCancel()
+
+	// Останавливаем TLEStore (фоновое обновление).
+	tleStore.Stop()
+	slog.Info("TLE store stopped")
+
+	// Ожидаем остановку SSE Hub (отключает всех клиентов).
+	select {
+	case <-sseHub.Done():
+		slog.Info("SSE hub shutdown complete")
+	case <-time.After(5 * time.Second):
+		slog.Warn("SSE hub shutdown timeout")
+	}
+
+	// Останавливаем HTTP-сервер (ожидаем завершения активных соединений).
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		slog.Error("server shutdown error", slogKeyError, err)
-		shutdownCancel()
-		os.Exit(1)
+		slog.Error("server shutdown error", "error", err)
+		return
 	}
-	shutdownCancel()
 
 	slog.Info("server stopped gracefully")
-}
-
-// loggingMiddleware логирует HTTP запросы.
-func loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-
-		// Обёртка response writer для захвата кода статуса
-		wrapped := &responseWriter{ResponseWriter: w, status: http.StatusOK}
-
-		next.ServeHTTP(wrapped, r)
-
-		// Пропуск логирования статических файлов
-		if len(r.URL.Path) > 7 && r.URL.Path[:8] == "/static/" {
-			return
-		}
-
-		slog.Info("request",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"status", wrapped.status,
-			"duration", time.Since(start),
-		)
-	})
-}
-
-// responseWriter оборачивает http.ResponseWriter для захвата кода статуса.
-type responseWriter struct {
-	http.ResponseWriter
-
-	status int
-}
-
-func (rw *responseWriter) WriteHeader(code int) {
-	rw.status = code
-	rw.ResponseWriter.WriteHeader(code)
 }

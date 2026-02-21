@@ -4,6 +4,7 @@ package tracker
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"strconv"
 	"strings"
@@ -20,6 +21,9 @@ var (
 	ErrInvalidAlpha5     = errors.New("invalid Alpha-5 NORAD ID format")
 	ErrEpochTooShort     = errors.New("epoch string too short")
 )
+
+// Ключ для slog-атрибута ошибки.
+const slogKeyError = "error"
 
 // alpha5Map маппинг букв Alpha-5 формата на числовые префиксы.
 // Alpha-5 используется для NORAD ID > 99999 (например, Starlink).
@@ -87,7 +91,13 @@ func ParseTLE(lines []string) (*TLE, error) {
 		line2 = strings.TrimSpace(lines[idxLine1])
 
 	case '2':
-		// Некорректный порядок строк
+		// Допускаем переставленный 2-line формат (Line2, Line1) — исправляем порядок
+		secondLine := strings.TrimSpace(lines[idxLine1])
+		if len(lines) == 2 && len(secondLine) > 0 && secondLine[0] == '1' {
+			line1 = secondLine
+			line2 = firstLine
+			break
+		}
 		return nil, fmt.Errorf("%w: expected Line1, got Line2", ErrInvalidTLEFormat)
 
 	default:
@@ -108,48 +118,53 @@ func ParseTLE(lines []string) (*TLE, error) {
 func ParseTLEBatch(data string) ([]*TLE, error) {
 	lines := strings.Split(data, "\n")
 	var tles []*TLE
-	currentLines := make([]string, 0, 3) // Обычно 3 строки (имя + line1 + line2)
+	currentLines := make([]string, 0, 3)
 
 	for i := range lines {
 		trimmed := strings.TrimSpace(lines[i])
 
-		// Пустая строка — возможный разделитель
 		if trimmed == "" {
 			if len(currentLines) >= 2 {
-				tle, err := ParseTLE(currentLines)
-				if err != nil {
-					return nil, fmt.Errorf(errMsgParsingTLE, err)
+				if parsed := parseTLEBlock(currentLines); parsed != nil {
+					tles = append(tles, parsed)
 				}
-				tles = append(tles, tle)
 				currentLines = nil
 			}
-
+			continue
+		}
+		if trimmed[0] == '#' {
 			continue
 		}
 
 		currentLines = append(currentLines, trimmed)
 
-		// Проверяем, готов ли TLE к парсингу
-		if tle := tryParseTLE(currentLines); tle != nil {
-			parsed, err := ParseTLE(currentLines)
-			if err != nil {
-				return nil, fmt.Errorf("parsing TLE: %w", err)
+		if tryParseTLE(currentLines) != nil {
+			if parsed := parseTLEBlock(currentLines); parsed != nil {
+				tles = append(tles, parsed)
 			}
-			tles = append(tles, parsed)
 			currentLines = nil
 		}
 	}
 
-	// Обработка последнего TLE
-	if len(currentLines) >= 2 {
-		tle, err := ParseTLE(currentLines)
-		if err != nil {
-			return nil, fmt.Errorf(errMsgParsingTLE, err)
-		}
-		tles = append(tles, tle)
+	if parsed := parseTLEBlock(currentLines); parsed != nil {
+		tles = append(tles, parsed)
 	}
 
 	return tles, nil
+}
+
+// parseTLEBlock пытается распарсить накопленные строки как TLE.
+// Возвращает nil если строк менее 2 или при ошибке парсинга.
+func parseTLEBlock(lines []string) *TLE {
+	if len(lines) < 2 {
+		return nil
+	}
+	tle, err := ParseTLE(lines)
+	if err != nil {
+		slog.Default().Debug("skipped invalid TLE block", "lines", lines, slogKeyError, err)
+		return nil
+	}
+	return tle
 }
 
 // tryParseTLE проверяет, можно ли распарсить накопленные строки как TLE.
@@ -162,8 +177,11 @@ func tryParseTLE(lines []string) []string {
 
 	switch n {
 	case 2:
-		// 2-line формат: Line1 + Line2
+		// 2-line формат: Line1+Line2 или переставленный Line2+Line1
 		if lines[0][0] == '1' && lines[1][0] == '2' {
+			return lines
+		}
+		if lines[0][0] == '2' && lines[1][0] == '1' {
 			return lines
 		}
 	case 3:
@@ -285,7 +303,8 @@ func parseLine1(tle *TLE, line string) error {
 	// Ephemeris Type (col 63)
 	ephTypeStr := strings.TrimSpace(line[62:63])
 	if ephTypeStr != "" && ephTypeStr != " " {
-		if ephType, err := strconv.Atoi(ephTypeStr); err == nil {
+		ephType, parseErr := strconv.Atoi(ephTypeStr)
+		if parseErr == nil {
 			tle.EphemerisType = ephType
 		}
 	}
@@ -293,7 +312,8 @@ func parseLine1(tle *TLE, line string) error {
 	// Element Set Number (cols 65-68)
 	elemSetStr := strings.TrimSpace(line[64:68])
 	if elemSetStr != "" {
-		if elemSet, err := strconv.Atoi(elemSetStr); err == nil {
+		elemSet, parseErr := strconv.Atoi(elemSetStr)
+		if parseErr == nil {
 			tle.ElementSetNo = elemSet
 		}
 	}
@@ -363,7 +383,8 @@ func parseLine2(tle *TLE, line string) error {
 	// Revolution Number (cols 64-68)
 	revNumStr := strings.TrimSpace(line[63:68])
 	if revNumStr != "" {
-		if revNum, err := strconv.Atoi(revNumStr); err == nil {
+		revNum, parseErr := strconv.Atoi(revNumStr)
+		if parseErr == nil {
 			tle.RevNumber = revNum
 		}
 	}
