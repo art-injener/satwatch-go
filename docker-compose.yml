@@ -1,0 +1,17 @@
+services:
+  satellite-scout:
+    build: .
+    container_name: satellite-scout
+    ports:
+      - "8080:8080"
+    environment:
+      # Путь к конфигу и режим embed/диск. Остальное — в data/config.json (volume ниже).
+      - SS_CONFIG=/app/data/config.json
+      - DEV_MODE=false
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      # Папка `data` хранит config.json, кеш TLE и список исключений.
+      - ./data:/app/data
+    restart: unless-stopped

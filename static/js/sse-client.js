@@ -143,26 +143,65 @@ class SSEClient {
     _createEventSource() {
         this._setStatus(SSEConnectionStatus.CONNECTING);
 
+        // Добавляем client_id в URL для per-client state (TRACK-STATE-003).
+        let url = this._url;
+        const clientId = getClientId();
+        if (clientId) {
+            const sep = url.indexOf('?') >= 0 ? '&' : '?';
+            url = url + sep + 'client_id=' + encodeURIComponent(clientId);
+        }
+
         try {
-            this._eventSource = new EventSource(this._url);
+            this._eventSource = new EventSource(url);
         } catch (err) {
             console.error('[SSEClient] failed to create EventSource:', err);
             this._scheduleReconnect();
             return;
         }
 
-        // Приветственное событие от SSE Hub — соединение установлено.
         this._eventSource.addEventListener('connected', (e) => {
             this._onConnected(e);
         });
 
-        // Бизнес-события: маршрутизация в StateManager.
         this._eventSource.addEventListener('satellite_state_update', (e) => {
             this._handleEvent('satellite_state_update', e);
         });
 
         this._eventSource.addEventListener('satellite_change', (e) => {
             this._handleEvent('satellite_change', e);
+        });
+
+        this._eventSource.addEventListener('satellite_group_update', (e) => {
+            this._handleEvent('satellite_group_update', e);
+        });
+
+        // Per-client восстановление наблюдения при подключении.
+        this._eventSource.addEventListener('client_state_restore', (e) => {
+            this._handleEvent('client_state_restore', e);
+        });
+
+        // Горячее переключение темы по PUT /api/settings → ui.theme.
+        this._eventSource.addEventListener('theme_changed', (e) => {
+            try {
+                const payload = JSON.parse(e.data);
+                if (!payload || !payload.theme) {return;}
+                if (typeof window.applySatWatchTheme !== 'function') {return;}
+                window.applySatWatchTheme(payload.theme, true);
+            } catch (err) {
+                console.error('[SSEClient] theme_changed parse error:', err);
+            }
+        });
+
+        // Mock/live циклы TX для нижней панели Авто (auto-link.js).
+        this._eventSource.addEventListener('tx_cycle', (e) => {
+            try {
+                const payload = JSON.parse(e.data);
+                document.dispatchEvent(new CustomEvent('satellite-scout-tx-cycle', {
+                    detail: payload,
+                }));
+            } catch (err) {
+                console.error('[SSEClient] tx_cycle parse error:', err);
+            }
         });
 
         // Обработка ошибок (потеря соединения и т.д.).
@@ -224,16 +263,13 @@ class SSEClient {
                 this._handleStateUpdate(data);
                 break;
             case 'satellite_change':
-                if (typeof data.norad_id === 'number') {
-                    let orbitalParams = null;
-                    if (typeof data.inclination === 'number' || typeof data.period === 'number') {
-                        orbitalParams = {
-                            inclination: data.inclination,
-                            period: data.period
-                        };
-                    }
-                    this._stateManager.setActiveSatellite(data.norad_id, data.name || '', orbitalParams);
-                }
+                this._handleSatelliteChange(data);
+                break;
+            case 'satellite_group_update':
+                this._stateManager.setSatelliteGroup(data);
+                break;
+            case 'client_state_restore':
+                this._handleClientStateRestore(data);
                 break;
             default:
                 console.warn(`[SSEClient] unhandled event type: ${eventType}`);
@@ -241,13 +277,64 @@ class SSEClient {
     }
 
     /**
+     * Обработка satellite_change: маршрутизация по reason.
+     *   - "manual"          → setTrackingSatellite (подтверждение бэкенда)
+     *   - "tracking_ended"  → clearTrackingSatellite
+     *   - "auto"/"initial"  → setSelectedSatellite (если нет ручного выбора в таблице)
+     * @param {Object} data
+     * @private
+     */
+    _handleSatelliteChange(data) {
+        if (typeof data.norad_id !== 'number') { return; }
+
+        const reason = data.reason || '';
+
+        // satellite_change(manual) не обрабатываем — tracking устанавливается
+        // через client_state_restore (TRACK-STATE-003: per-client).
+        if (reason === 'manual') {
+            return;
+        }
+
+        if (reason === 'tracking_ended') {
+            this._stateManager.clearTrackingSatellite();
+            // forceNotify: даже при совпадении NORAD обновить таблицу и сбросить слой selected/трек.
+            // tracking_ended всегда сбрасывает ручной выбор — сеанс закончился, контекст неактуален.
+            this._stateManager.setSelectedSatellite(data.norad_id, data.name || '', false, true);
+        } else {
+            // "auto", "initial" — обновляем selected (не tracking).
+            // Если оператор сделал ручной выбор в таблице — не перезатираем его.
+            // satellite_group_update уже корректно проверяет _manualTableSelection;
+            // satellite_change не должен обходить эту защиту.
+            if (this._stateManager.isManualTableSelection()) {
+                return;
+            }
+            this._stateManager.setSelectedSatellite(data.norad_id, data.name || '', false, true);
+        }
+    }
+
+    /**
+     * Обработка per-client события client_state_restore (TRACK-STATE-003).
+     * Восстанавливает tracking_id конкретного клиента при подключении или смене.
+     * @param {Object} data — {tracking_id, ts}.
+     * @private
+     */
+    _handleClientStateRestore(data) {
+        const trackingId = (typeof data.tracking_id === 'number' && data.tracking_id > 0) ? data.tracking_id : null;
+        const currentTracking = this._stateManager.getTrackingSatelliteId();
+
+        if (trackingId !== currentTracking) {
+            if (trackingId) {
+                const state = this._stateManager.getState(trackingId);
+                this._stateManager.setTrackingSatellite(trackingId, state ? state.name : '');
+            } else {
+                this._stateManager.clearTrackingSatellite();
+            }
+        }
+    }
+
+    /**
      * Обработка группового события satellite_state_update.
-     * Содержит positions[] и опционально tracks[].
-     * @param {Object} data — данные группового события.
-     * @param {Array} data.positions — массив позиций спутников.
-     * @param {Array} [data.tracks] — массив треков (если tracks_included=true).
-     * @param {boolean} data.tracks_included — флаг наличия треков.
-     * @param {number} data.ts — общий timestamp.
+     * @param {Object} data
      * @private
      */
     _handleStateUpdate(data) {
@@ -263,9 +350,22 @@ class SSEClient {
             this._stateManager.updatePosition(pos);
         }
 
+        this._stateManager.forcePositionRefresh();
+
         if (data.tracks_included && Array.isArray(data.tracks)) {
+            // Сначала сохраняем ВСЕ треки в кеш (в т.ч. вторичных спутников).
+            // updateTrack() внутри тоже стреляет TRACK для primary если изменился,
+            // но порядок треков в Go map случайный — primary может прийти раньше вторичных.
+            let anyChanged = false;
             for (const track of data.tracks) {
-                this._stateManager.updateTrack(track);
+                if (this._stateManager.updateTrack(track)) {
+                    anyChanged = true;
+                }
+            }
+            // После обработки ВСЕХ треков принудительно обновляем вторичные спутники —
+            // к этому моменту их треки гарантированно в кеше.
+            if (anyChanged) {
+                this._stateManager.forceTrackRefresh();
             }
         }
     }
@@ -343,13 +443,41 @@ class SSEClient {
     }
 }
 
+/**
+ * Генерация/получение уникального client_id для per-client state (TRACK-STATE-003).
+ * Используется sessionStorage (per-tab): каждая вкладка — отдельный клиент.
+ * @returns {string}
+ */
+function getClientId() {
+    const key = 'satellite-scout-client-id';
+    if (typeof sessionStorage !== 'undefined') {
+        const existing = sessionStorage.getItem(key);
+        if (existing) { return existing; }
+        const id = _generateUUID();
+        sessionStorage.setItem(key, id);
+        return id;
+    }
+    return _generateUUID();
+}
+
+function _generateUUID() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+}
+
 // Экспорт для использования в других модулях и тестах.
 if (typeof module !== 'undefined' && module.exports) { // eslint-disable-line no-undef
-    module.exports = { SSEClient, SSEConnectionStatus }; // eslint-disable-line no-undef
+    module.exports = { SSEClient, SSEConnectionStatus, getClientId }; // eslint-disable-line no-undef
 }
 
 // Экспорт для использования в браузере.
 if (typeof window !== 'undefined') {
     window.SSEClient = SSEClient;
     window.SSEConnectionStatus = SSEConnectionStatus;
+    window.getClientId = getClientId;
 }

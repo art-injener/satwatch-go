@@ -269,6 +269,79 @@ func (lla *LLA) LonDeg() float64 {
 	return lla.Lon * Rad2Deg
 }
 
+// GreatCircleAngularDistanceRad возвращает угловое расстояние между точками на сфере (радианы).
+func GreatCircleAngularDistanceRad(a, b *LLA) float64 {
+	if a == nil || b == nil {
+		return 0
+	}
+	dLat := b.Lat - a.Lat
+	dLon := b.Lon - a.Lon
+	sa := math.Sin(dLat / 2)
+	sb := math.Sin(dLon / 2)
+	h := sa*sa + math.Cos(a.Lat)*math.Cos(b.Lat)*sb*sb
+	if h < 0 {
+		h = 0
+	}
+	if h > 1 {
+		h = 1
+	}
+	return 2 * math.Asin(math.Sqrt(h))
+}
+
+// InitialBearingDeg возвращает начальный азимут от точки a к точке b (градусы).
+// Широта и долгота в радианах. 0° — север, по часовой стрелке.
+func InitialBearingDeg(lat1, lon1, lat2, lon2 float64) float64 {
+	dLon := lon2 - lon1
+	// Кратчайший сдвиг долготы (устойчивость у линии перемены дат и больших скачков).
+	for dLon > math.Pi {
+		dLon -= 2 * math.Pi
+	}
+	for dLon < -math.Pi {
+		dLon += 2 * math.Pi
+	}
+	y := math.Sin(dLon) * math.Cos(lat2)
+	x := math.Cos(lat1)*math.Sin(lat2) - math.Sin(lat1)*math.Cos(lat2)*math.Cos(dLon)
+	br := math.Atan2(y, x) * Rad2Deg
+	for br < 0 {
+		br += 360
+	}
+	for br >= 360 {
+		br -= 360
+	}
+	return br
+}
+
+// MapMarkerRotDegFromBearingDeg — угол CSS transform:rotate для маркера на эквидистантной карте
+// (ось Y вниз), бум параллелен линии трассы. bearingFromNorthDeg — азимут движения (0° = север).
+// svgInternalRotateDeg — внутренний rotate в SVG-иконке (у нас 45°).
+func MapMarkerRotDegFromBearingDeg(bearingFromNorthDeg, svgInternalRotateDeg float64) float64 {
+	br := bearingFromNorthDeg * Deg2Rad
+	heading := math.Atan2(-math.Cos(br), math.Sin(br)) * Rad2Deg
+	v := heading - svgInternalRotateDeg
+	return NormalizeDegrees180(v)
+}
+
+// MapMarkerRotDegPlatCarreChord — угол CSS rotate по направлению хорды на платовской карте,
+// как отрезки наземного трека в EarthView.project (x∝lon, y∝−lat). Δ в градусах.
+// При соотношении сторон canvas 2:1 совпадает с atan2(Δy, Δx) между спроецированными точками.
+func MapMarkerRotDegPlatCarreChord(lat0Deg, lon0Deg, lat1Deg, lon1Deg, svgInternalRotateDeg float64) float64 {
+	dLon := lon1Deg - lon0Deg
+	for dLon > 180 {
+		dLon -= 360
+	}
+	for dLon < -180 {
+		dLon += 360
+	}
+	dLat := lat1Deg - lat0Deg
+	heading := math.Atan2(-dLat, dLon) * Rad2Deg
+	return NormalizeDegrees180(heading - svgInternalRotateDeg)
+}
+
+// NormalizeDegrees180 приводит угол к диапазону (-180, 180].
+func NormalizeDegrees180(a float64) float64 {
+	return math.Mod(a+540, 360) - 180
+}
+
 // NewObserver создаёт Observer с координатами в градусах.
 func NewObserver(latDeg, lonDeg, altKm float64) *Observer {
 	return &Observer{
@@ -312,4 +385,50 @@ func (obs *Observer) GetAER(eci *ECIPosition) *AER {
 	obsLLA := obs.ToLLA()
 
 	return ECEFToAER(satECEF, obsECEF, obsLLA)
+}
+
+// RangeRateKmps возвращает радиальную скорость спутника относительно наблюдателя,
+// км/с. Знак: «+» — удаляется, «−» — приближается. Используется для расчёта
+// доплеровского сдвига приёмником на фронте: f_d = -f_dl * (range_rate / c).
+//
+// Алгоритм: в инерциальной системе ECI считаем
+//
+//	v_rel = v_sat − v_obs,  v_obs = ω × r_obs (вращение Земли),
+//	range_rate = (r_rel · v_rel) / |r_rel|.
+//
+// Скорость спутника берётся из ECIPosition.Vx/Vy/Vz (SGP4 заполняет на пропагации).
+func RangeRateKmps(satECI *ECIPosition, obs *Observer) float64 {
+	if satECI == nil || obs == nil {
+		return 0
+	}
+
+	// Наблюдатель ECEF → ECI на момент времени спутника (для общего GMST).
+	obsECEF := ObserverToECEF(obs)
+	if obsECEF == nil {
+		return 0
+	}
+	obsECEF.Time = satECI.Time
+	obsECI := ECEFToECI(obsECEF)
+	if obsECI == nil {
+		return 0
+	}
+
+	// Скорость наблюдателя в ECI — вращение Земли вокруг оси Z:
+	// v_obs = ω × r_obs, где ω = (0, 0, OmegaEarth).
+	vObsX := -OmegaEarth * obsECI.Y
+	vObsY := OmegaEarth * obsECI.X
+
+	rx := satECI.X - obsECI.X
+	ry := satECI.Y - obsECI.Y
+	rz := satECI.Z - obsECI.Z
+
+	vx := satECI.Vx - vObsX
+	vy := satECI.Vy - vObsY
+	vz := satECI.Vz
+
+	rng := math.Sqrt(rx*rx + ry*ry + rz*rz)
+	if rng < 1e-9 {
+		return 0
+	}
+	return (rx*vx + ry*vy + rz*vz) / rng
 }

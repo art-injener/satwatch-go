@@ -38,13 +38,30 @@ func (h *APIHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, HealthResponse{Status: "ok"})
 }
 
-// GetConfig возвращает текущую конфигурацию.
+// GetConfig возвращает текущую конфигурацию (только публичная часть, без
+// секретов и серверных деталей). Содержит координаты наблюдателя, вычисленный
+// тип станции и компактный список радиотрактов — этого достаточно, чтобы
+// фронтенд построил mode-bar и переключатель режимов. Полная схема для модалки
+// настроек отдаётся через GET /api/settings.
 func (h *APIHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
+	station := &h.config.Station
+
+	paths := make([]RadioPathInfo, 0, len(station.RadioPaths))
+	for _, rp := range station.RadioPaths {
+		paths = append(paths, RadioPathInfo{
+			ID:         rp.ID,
+			Name:       rp.Name,
+			HasRotator: rp.Rotator != nil,
+		})
+	}
+
 	writeJSON(w, http.StatusOK, ConfigResponse{
 		Observer: ObserverConfig{
-			Lat: h.config.ObserverLat,
-			Lon: h.config.ObserverLon,
-			Alt: h.config.ObserverAlt,
+			Lat: station.Observer.Lat,
+			Lon: station.Observer.Lon,
+			Alt: station.Observer.AltM,
 		},
+		StationType: station.StationType(),
+		RadioPaths:  paths,
 	})
 }

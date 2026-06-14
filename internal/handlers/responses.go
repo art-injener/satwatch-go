@@ -19,9 +19,23 @@ type ObserverConfig struct {
 	Alt float64 `json:"alt"`
 }
 
-// ConfigResponse — ответ с конфигурацией.
+// RadioPathInfo — компактное представление радиотракта для фронтенда.
+// Передаётся в /api/config — этого достаточно, чтобы построить dropdown
+// в mode-bar и понять, доступна ли кнопка "Сопровождать" для тракта.
+// Полные параметры радиотракта UI получает через GET /api/settings.
+type RadioPathInfo struct {
+	ID         int    `json:"id"`
+	Name       string `json:"name"`
+	HasRotator bool   `json:"has_rotator"`
+}
+
+// ConfigResponse — ответ с конфигурацией для фронтенда. Содержит только то,
+// что нужно для инициализации UI: координаты наблюдателя, вычисленный тип
+// станции и список радиотрактов в краткой форме.
 type ConfigResponse struct {
-	Observer ObserverConfig `json:"observer"`
+	Observer    ObserverConfig  `json:"observer"`
+	StationType string          `json:"station_type"`
+	RadioPaths  []RadioPathInfo `json:"radio_paths"`
 }
 
 // PassesParams — параметры запроса пролётов.

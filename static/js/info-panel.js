@@ -2,8 +2,8 @@
  * InfoPanel — отображение данных спутника в 5 карточках.
  *
  * Подписывается на StateManager (POSITION, SATELLITE_CHANGE),
- * загружает данные пролёта из /api/passes при смене спутника.
- * Управляет кнопкой «Сопровождение» и модальным окном подтверждения.
+ * берёт данные пролёта из satellite_group_update (SSE) при смене спутника.
+ * Управляет кнопкой наблюдения и модальным окном подтверждения.
  */
 (function() {
     'use strict';
@@ -129,12 +129,22 @@
         const self = this;
         const SE = window.StateEventType;
 
-        this._stateManager.subscribe(SE.POSITION, function(state) {
-            self._updateFromPosition(state);
+        // Позиция обновляется для selected, но overlay показывает tracking.
+        // Поэтому InfoPanel читает позицию tracking-спутника из кеша.
+        this._stateManager.subscribe(SE.POSITION, function() {
+            const trackId = self._stateManager.getTrackingSatelliteId();
+            if (!trackId) { return; }
+            const trkState = self._stateManager.getState(trackId);
+            if (trkState) { self._updateFromPosition(trkState); }
         });
 
-        this._stateManager.subscribe(SE.SATELLITE_CHANGE, function(state) {
-            self._onSatelliteChange(state);
+        // При смене наблюдения — обновляем данные.
+        this._stateManager.subscribe(SE.TRACKING_CHANGE, function(state) {
+            if (state && state.noradId) {
+                self._onSatelliteChange(state);
+            } else {
+                self._clearAll();
+            }
         });
     };
 
@@ -143,14 +153,25 @@
      */
     InfoPanel.prototype._initFromCurrentState = function() {
         if (!this._stateManager) {return;}
-        const state = this._stateManager.getActiveState();
-        if (!state) {return;}
+        // Инициализация из tracking (если уже есть).
+        const trackId = this._stateManager.getTrackingSatelliteId();
+        if (!trackId) { return; }
+        const state = this._stateManager.getState(trackId);
+        if (!state) { return; }
 
         if (state.position) {
             this._updateFromPosition(state);
         }
         if (state.noradId) {
             this._onSatelliteChange(state);
+        }
+    };
+
+    InfoPanel.prototype._clearAll = function() {
+        this._activeNoradId = null;
+        this._currentPass = null;
+        for (const id in this._els) {
+            if (this._els[id]) { this._els[id].textContent = '---'; }
         }
     };
 
@@ -216,38 +237,18 @@
     };
 
     /**
-     * Загрузка данных ближайшего пролёта для спутника.
+     * Получение данных ближайшего пролёта из группы (satellite_group_update SSE).
      */
     InfoPanel.prototype._fetchPassData = function(noradId) {
-        const self = this;
+        if (!this._stateManager) { return; }
+        const group = this._stateManager.getSatelliteGroup();
+        if (!group || !group.satellites) { return; }
 
-        fetch('/api/passes?hours=24')
-            .then(function(resp) { return resp.json(); })
-            .then(function(data) {
-                if (!data.passes || data.passes.length === 0) {return;}
-                if (self._activeNoradId !== noradId) {return;}
+        const sat = group.satellites.find(function(s) { return s.norad_id === noradId; });
+        if (!sat) { return; }
 
-                const now = Date.now();
-                let pass = null;
-
-                for (let i = 0; i < data.passes.length; i++) {
-                    const p = data.passes[i];
-                    if (p.norad_id === noradId) {
-                        if ((p.aos <= now && now <= p.los) || now < p.aos) {
-                            pass = p;
-                            break;
-                        }
-                    }
-                }
-
-                if (pass) {
-                    self._currentPass = pass;
-                    self._updatePassFields(pass);
-                }
-            })
-            .catch(function(err) {
-                console.error('[InfoPanel] Ошибка загрузки данных пролёта:', err);
-            });
+        this._currentPass = sat;
+        this._updatePassFields(sat);
     };
 
     /**

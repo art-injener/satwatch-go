@@ -1,100 +1,472 @@
 {{define "tracking-content"}}
-<div class="tracking-layout">
-    <!-- Левая колонка: карта + информация о спутнике -->
-    <section class="map-column">
+<!-- Левая колонка Авто-режима: карта с оверлеем параметров КА -->
+<div class="tracking-left" id="tracking-layout">
+    <section class="map-area">
         <div class="earth-view-container">
-            <canvas id="earth-view" width="800" height="400"></canvas>
-            <!-- Оверлей при смене спутника -->
+            <div class="earth-view-canvas-wrap">
+                <canvas id="earth-view" width="800" height="400" role="img" aria-label="Карта Земли с орбитальными треками спутников и точкой наблюдения"></canvas>
+            </div>
+
+            <!-- SVG-маркер спутника под наблюдением (tracking) — тот же логотип, цвет tracking -->
+            <div class="map-sat-marker map-sat-marker--tracking" id="map-sat-tracking" style="display:none">
+                <div class="map-sat-flip" aria-hidden="true">
+                <svg class="map-sat-icon" viewBox="-20 -20 140 140" width="56" height="56" overflow="visible" aria-hidden="true">
+                    <style>
+                        @keyframes map-sat-orbit { 0%,100%{transform:translateY(0) rotate(0deg)} 50%{transform:translateY(0) rotate(2deg)} }
+                        /* Волны, рупоры и полосы — 3.8s; индикаторы без свечения, только смена fill в тон маркера. */
+                        @keyframes map-horn-blink {
+                            0%, 45%, 100% { fill: var(--map-icon-tracking-fill,#00d4aa); }
+                            22% { fill: var(--map-icon-flash-tracking,#e8fff8); }
+                        }
+                        @keyframes map-wave-pulse {
+                            0%, 100% { opacity: 0; stroke-width: 2; }
+                            4% { opacity: 1; stroke-width: 4.5; }
+                            12% { opacity: 0; stroke-width: 2; }
+                        }
+                        @keyframes map-trk-led-row {
+                            0%, 100% { fill: var(--map-icon-led-off,#7a8a9c); }
+                            4% { fill: var(--map-icon-tracking-fill,#00d4aa); }
+                            12% { fill: var(--map-icon-led-off,#7a8a9c); }
+                        }
+                        #map-sat-tracking .map-sat-icon { animation: map-sat-orbit 8s ease-in-out infinite; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.35)); }
+                        #map-sat-tracking .map-sat-ant-l .mhorn { animation: map-horn-blink 3.6s ease-in-out infinite; }
+                        #map-sat-tracking .map-sat-ant-r .mhorn { animation: map-horn-blink 3.6s ease-in-out infinite 1.8s; }
+                        #map-sat-tracking .map-sat-ant-l .mw1 { animation: map-wave-pulse 3.8s ease-out infinite 0s; }
+                        #map-sat-tracking .map-sat-ant-l .mw2 { animation: map-wave-pulse 3.8s ease-out infinite 0.14s; }
+                        #map-sat-tracking .map-sat-ant-l .mw3 { animation: map-wave-pulse 3.8s ease-out infinite 0.28s; }
+                        #map-sat-tracking .map-sat-ant-r .mw1 { animation: map-wave-pulse 3.8s ease-out infinite 1.05s; }
+                        #map-sat-tracking .map-sat-ant-r .mw2 { animation: map-wave-pulse 3.8s ease-out infinite 1.19s; }
+                        #map-sat-tracking .map-sat-ant-r .mw3 { animation: map-wave-pulse 3.8s ease-out infinite 1.33s; }
+                        #map-sat-tracking .map-sat-led--t1 { animation: map-trk-led-row 3.8s ease-out infinite 1.05s; }
+                        #map-sat-tracking .map-sat-led--b1 { animation: map-trk-led-row 3.8s ease-out infinite 0s; }
+                    </style>
+                    <g transform="rotate(45 50 50)">
+                        <!-- Бум -->
+                        <rect x="4" y="47" width="92" height="6" rx="1" fill="var(--map-icon-boom-fill,#8b919a)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5"/>
+                        <!-- Левая солнечная панель + сетка (как до экспериментов с обводкой) -->
+                        <rect x="-6" y="24" width="30" height="52" rx="3" fill="var(--map-icon-tracking-fill,#00d4aa)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5"/>
+                        <path d="M -6 40 L 24 40 M -6 56 L 24 56 M 4 24 L 4 76 M 14 24 L 14 76" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2"/>
+                        <!-- Правая солнечная панель + сетка -->
+                        <rect x="76" y="24" width="30" height="52" rx="3" fill="var(--map-icon-tracking-fill,#00d4aa)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5"/>
+                        <path d="M 76 40 L 106 40 M 76 56 L 106 56 M 86 24 L 86 76 M 96 24 L 96 76" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2"/>
+                        <!-- Корпус «бочка»: выпуклые бока (узко у антенн, шире посередине) -->
+                        <path d="M 35 76 L 65 76 Q 67 50 65 24 L 35 24 Q 33 50 35 76 Z" fill="var(--map-icon-neutral-fill,#e6e8eb)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5" stroke-linejoin="round"/>
+                        <!-- Индикаторы: прямоугольник на всю ширину между боковыми хордами -->
+                        <rect class="map-sat-led map-sat-led--t1" x="35" y="26" width="30" height="5" rx="1.25" fill="var(--map-icon-led-off,#7a8a9c)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="1"/>
+                        <rect class="map-sat-led map-sat-led--b1" x="35" y="66" width="30" height="5" rx="1.25" fill="var(--map-icon-led-off,#7a8a9c)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="1"/>
+                        <!-- Антенна нижняя (→ нижне-левая после rotate 45°); зеркало шире -->
+                        <g class="map-sat-ant-l">
+                            <line x1="50" y1="76" x2="50" y2="92" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5" stroke-linecap="round"/>
+                            <path d="M 26 92 A 26 26 0 0 1 74 92 Z" fill="var(--map-icon-neutral-fill,#e6e8eb)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5" stroke-linejoin="round"/>
+                            <line x1="50" y1="92" x2="50" y2="108" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="3" stroke-linecap="round"/>
+                            <circle cx="50" cy="108" r="5" class="mhorn" fill="var(--map-icon-tracking-fill,#00d4aa)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5"/>
+                            <path d="M 35 108 A 15 15 0 0 0 65 108" class="mw1" stroke="var(--map-icon-tracking-fill,#00d4aa)" fill="none" stroke-width="3" stroke-linecap="round"/>
+                            <path d="M 25 108 A 25 25 0 0 0 75 108" class="mw2" stroke="var(--map-icon-tracking-fill,#00d4aa)" fill="none" stroke-width="3" stroke-linecap="round"/>
+                            <path d="M 15 108 A 35 35 0 0 0 85 108" class="mw3" stroke="var(--map-icon-tracking-fill,#00d4aa)" fill="none" stroke-width="3" stroke-linecap="round"/>
+                        </g>
+                        <!-- Антенна верхняя (→ верхне-правая после rotate 45°) -->
+                        <g class="map-sat-ant-r">
+                            <line x1="50" y1="24" x2="50" y2="8" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5" stroke-linecap="round"/>
+                            <path d="M 26 8 A 26 26 0 0 0 74 8 Z" fill="var(--map-icon-neutral-fill,#e6e8eb)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5" stroke-linejoin="round"/>
+                            <line x1="50" y1="8" x2="50" y2="0" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="3" stroke-linecap="round"/>
+                            <circle cx="50" cy="0" r="5" class="mhorn" fill="var(--map-icon-tracking-fill,#00d4aa)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5"/>
+                            <path d="M 35 0 A 15 15 0 0 1 65 0" class="mw1" stroke="var(--map-icon-tracking-fill,#00d4aa)" fill="none" stroke-width="3" stroke-linecap="round"/>
+                            <path d="M 25 0 A 25 25 0 0 1 75 0" class="mw2" stroke="var(--map-icon-tracking-fill,#00d4aa)" fill="none" stroke-width="3" stroke-linecap="round"/>
+                            <path d="M 15 0 A 35 35 0 0 1 85 0" class="mw3" stroke="var(--map-icon-tracking-fill,#00d4aa)" fill="none" stroke-width="3" stroke-linecap="round"/>
+                        </g>
+                    </g>
+                </svg>
+                </div>
+            </div>
+
+            <!-- SVG-маркер выбранного спутника (selected) — тот же логотип, цвет selected -->
+            <div class="map-sat-marker map-sat-marker--selected" id="map-sat-selected" style="display:none">
+                <div class="map-sat-flip" aria-hidden="true">
+                <svg class="map-sat-icon" viewBox="-20 -20 140 140" width="56" height="56" overflow="visible" aria-hidden="true">
+                    <style>
+                        @keyframes map-sat-orbit-sel { 0%,100%{transform:translateY(0) rotate(0deg)} 50%{transform:translateY(0) rotate(1deg)} }
+                        @keyframes map-horn-blink-sel {
+                            0%, 45%, 100% { fill: var(--map-icon-selected-fill,#ffb347); }
+                            22% { fill: var(--map-icon-flash-selected,#fff5e8); }
+                        }
+                        @keyframes map-wave-pulse-sel {
+                            0%, 100% { opacity: 0; stroke-width: 2; }
+                            4% { opacity: 1; stroke-width: 4.5; }
+                            12% { opacity: 0; stroke-width: 2; }
+                        }
+                        @keyframes map-sel-led-row {
+                            0%, 100% { fill: var(--map-icon-led-off,#7a8a9c); }
+                            4% { fill: var(--map-icon-selected-fill,#ffb347); }
+                            12% { fill: var(--map-icon-led-off,#7a8a9c); }
+                        }
+                        #map-sat-selected .map-sat-icon { animation: map-sat-orbit-sel 9s ease-in-out infinite; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.35)); }
+                        #map-sat-selected .map-sat-ant-l .mhorn { animation: map-horn-blink-sel 3.6s ease-in-out infinite; }
+                        #map-sat-selected .map-sat-ant-r .mhorn { animation: map-horn-blink-sel 3.6s ease-in-out infinite 1.8s; }
+                        #map-sat-selected .map-sat-ant-l .mw1 { animation: map-wave-pulse-sel 3.8s ease-out infinite 0.05s; }
+                        #map-sat-selected .map-sat-ant-l .mw2 { animation: map-wave-pulse-sel 3.8s ease-out infinite 0.19s; }
+                        #map-sat-selected .map-sat-ant-l .mw3 { animation: map-wave-pulse-sel 3.8s ease-out infinite 0.33s; }
+                        #map-sat-selected .map-sat-ant-r .mw1 { animation: map-wave-pulse-sel 3.8s ease-out infinite 1.1s; }
+                        #map-sat-selected .map-sat-ant-r .mw2 { animation: map-wave-pulse-sel 3.8s ease-out infinite 1.24s; }
+                        #map-sat-selected .map-sat-ant-r .mw3 { animation: map-wave-pulse-sel 3.8s ease-out infinite 1.38s; }
+                        #map-sat-selected .map-sat-led--t1 { animation: map-sel-led-row 3.8s ease-out infinite 1.1s; }
+                        #map-sat-selected .map-sat-led--b1 { animation: map-sel-led-row 3.8s ease-out infinite 0.05s; }
+                    </style>
+                    <g transform="rotate(45 50 50)">
+                        <rect x="4" y="47" width="92" height="6" rx="1" fill="var(--map-icon-boom-fill,#8b919a)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5"/>
+                        <rect x="-6" y="24" width="30" height="52" rx="3" fill="var(--map-icon-selected-fill,#ffb347)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5"/>
+                        <path d="M -6 40 L 24 40 M -6 56 L 24 56 M 4 24 L 4 76 M 14 24 L 14 76" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2"/>
+                        <rect x="76" y="24" width="30" height="52" rx="3" fill="var(--map-icon-selected-fill,#ffb347)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5"/>
+                        <path d="M 76 40 L 106 40 M 76 56 L 106 56 M 86 24 L 86 76 M 96 24 L 96 76" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2"/>
+                        <path d="M 35 76 L 65 76 Q 67 50 65 24 L 35 24 Q 33 50 35 76 Z" fill="var(--map-icon-neutral-fill,#e6e8eb)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5" stroke-linejoin="round"/>
+                        <rect class="map-sat-led map-sat-led--t1" x="35" y="26" width="30" height="5" rx="1.25" fill="var(--map-icon-led-off,#7a8a9c)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="1"/>
+                        <rect class="map-sat-led map-sat-led--b1" x="35" y="66" width="30" height="5" rx="1.25" fill="var(--map-icon-led-off,#7a8a9c)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="1"/>
+                        <g class="map-sat-ant-l">
+                            <line x1="50" y1="76" x2="50" y2="92" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5" stroke-linecap="round"/>
+                            <path d="M 26 92 A 26 26 0 0 1 74 92 Z" fill="var(--map-icon-neutral-fill,#e6e8eb)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5" stroke-linejoin="round"/>
+                            <line x1="50" y1="92" x2="50" y2="108" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="3" stroke-linecap="round"/>
+                            <circle cx="50" cy="108" r="5" class="mhorn" fill="var(--map-icon-selected-fill,#ffb347)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5"/>
+                            <path d="M 35 108 A 15 15 0 0 0 65 108" class="mw1" stroke="var(--map-icon-selected-fill,#ffb347)" fill="none" stroke-width="3" stroke-linecap="round"/>
+                            <path d="M 25 108 A 25 25 0 0 0 75 108" class="mw2" stroke="var(--map-icon-selected-fill,#ffb347)" fill="none" stroke-width="3" stroke-linecap="round"/>
+                            <path d="M 15 108 A 35 35 0 0 0 85 108" class="mw3" stroke="var(--map-icon-selected-fill,#ffb347)" fill="none" stroke-width="3" stroke-linecap="round"/>
+                        </g>
+                        <g class="map-sat-ant-r">
+                            <line x1="50" y1="24" x2="50" y2="8" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5" stroke-linecap="round"/>
+                            <path d="M 26 8 A 26 26 0 0 0 74 8 Z" fill="var(--map-icon-neutral-fill,#e6e8eb)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5" stroke-linejoin="round"/>
+                            <line x1="50" y1="8" x2="50" y2="0" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="3" stroke-linecap="round"/>
+                            <circle cx="50" cy="0" r="5" class="mhorn" fill="var(--map-icon-selected-fill,#ffb347)" stroke="var(--map-icon-stroke,#0a0e14)" stroke-width="2.5"/>
+                            <path d="M 35 0 A 15 15 0 0 1 65 0" class="mw1" stroke="var(--map-icon-selected-fill,#ffb347)" fill="none" stroke-width="3" stroke-linecap="round"/>
+                            <path d="M 25 0 A 25 25 0 0 1 75 0" class="mw2" stroke="var(--map-icon-selected-fill,#ffb347)" fill="none" stroke-width="3" stroke-linecap="round"/>
+                            <path d="M 15 0 A 35 35 0 0 1 85 0" class="mw3" stroke="var(--map-icon-selected-fill,#ffb347)" fill="none" stroke-width="3" stroke-linecap="round"/>
+                        </g>
+                    </g>
+                </svg>
+                </div>
+            </div>
+
+            <!-- Контейнер пула DOM-карточек выносок.
+                 Карточки добавляет/удаляет CalloutRenderer; позиция в процентах от .earth-view-container. -->
+            <div class="map-callouts" id="map-callouts" aria-hidden="true"></div>
+
+            <!-- Оверлей при смене спутника (loading spinner) -->
             <div id="tracking-overlay" class="tracking-overlay hidden">
                 <div class="tracking-overlay-content">
                     <div class="tracking-spinner"></div>
-                    <div class="tracking-overlay-text">
-                        Берём на сопровождение
-                    </div>
+                    <div class="tracking-overlay-text">Берём под наблюдение</div>
                     <div class="tracking-overlay-sat" id="tracking-overlay-sat">
                         NORAD <span id="tracking-overlay-norad">---</span>
                     </div>
                     <div class="tracking-overlay-name" id="tracking-overlay-name">---</div>
                 </div>
             </div>
-        </div>
-        <!-- InfoPanel: столбики с параметрами спутника -->
-        <div class="info-panel" id="info-panel">
-            <!-- 5 столбиков-карточек -->
-            <div class="info-panel__columns">
-                <!-- Столбик 1: Спутник -->
-                <div class="info-card">
-                    <div class="info-card__title">Спутник</div>
-                    <div class="info-card__body">
-                        <div class="info-row"><span class="info-label">NORAD</span><span class="info-value" id="ip-norad">---</span></div>
-                        <div class="info-row"><span class="info-label">Имя</span><span class="info-value" id="ip-name">---</span></div>
-                        <div class="info-row"><span class="info-label">Группа</span><span class="info-value" id="ip-group">---</span></div>
-                        <button class="info-panel__track-btn" id="btn-track" title="Взять на сопровождение">
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                                <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/>
-                            </svg>
-                            Сопровождение
-                        </button>
+            <!-- Overlay-панель параметров КА — слева поверх карты -->
+            <div class="overlay-panel" id="sat-overlay-panel">
+                <div class="overlay-panel__header">
+                    <span class="overlay-panel__title">КА</span>
+                    <button class="overlay-panel__close" id="overlay-panel-close" title="Скрыть">×</button>
+                </div>
+                <div class="overlay-panel__body">
+                    <!-- Группа: Спутник -->
+                    <div class="overlay-group">
+                        <div class="overlay-row"><span class="overlay-label">NORAD</span><span class="overlay-value" id="ip-norad">---</span></div>
+                        <div class="overlay-row"><span class="overlay-label">Имя</span><span class="overlay-value" id="ip-name">---</span></div>
+                        <div class="overlay-row"><span class="overlay-label">Группа</span><span class="overlay-value" id="ip-group">---</span></div>
+                    </div>
+                    <!-- Группа: Геоданные -->
+                    <div class="overlay-group">
+                        <div class="overlay-row"><span class="overlay-label">Lon</span><span class="overlay-value" id="ip-lon">---.--°</span></div>
+                        <div class="overlay-row"><span class="overlay-label">Lat</span><span class="overlay-value" id="ip-lat">---.--°</span></div>
+                        <div class="overlay-row"><span class="overlay-label">Az</span><span class="overlay-value" id="ip-az">---°</span></div>
+                        <div class="overlay-row"><span class="overlay-label">El</span><span class="overlay-value" id="ip-el">---°</span></div>
+                        <div class="overlay-row"><span class="overlay-label">Alt</span><span class="overlay-value" id="ip-alt">--- km</span></div>
+                    </div>
+                    <!-- Группа: Орбита -->
+                    <div class="overlay-group">
+                        <div class="overlay-row"><span class="overlay-label">Виток</span><span class="overlay-value" id="ip-orbit">#---</span></div>
+                        <div class="overlay-row"><span class="overlay-label">Период</span><span class="overlay-value" id="ip-period">---</span></div>
+                        <div class="overlay-row"><span class="overlay-label">Наклон</span><span class="overlay-value" id="ip-incl">---°</span></div>
+                    </div>
+                    <!-- Группа: Пролёт -->
+                    <div class="overlay-group">
+                        <div class="overlay-row"><span class="overlay-label">AOS</span><span class="overlay-value" id="ip-aos">--:--:--</span></div>
+                        <div class="overlay-row"><span class="overlay-label">TCA</span><span class="overlay-value" id="ip-tca">--:--:--</span></div>
+                        <div class="overlay-row"><span class="overlay-label">LOS</span><span class="overlay-value" id="ip-los">--:--:--</span></div>
+                        <div class="overlay-row"><span class="overlay-label">Длит.</span><span class="overlay-value" id="ip-dur">--:--</span></div>
+                    </div>
+                    <!-- Группа: Радиолиния -->
+                    <div class="overlay-group">
+                        <div class="overlay-row"><span class="overlay-label">ТМИ</span><span class="overlay-value" id="ip-tmi">--- MHz</span></div>
+                        <div class="overlay-row"><span class="overlay-label">Downlink</span><span class="overlay-value" id="ip-downlink">--- MHz</span></div>
                     </div>
                 </div>
-                <!-- Столбик 2: Геоданные -->
-                <div class="info-card">
-                    <div class="info-card__title">Геоданные</div>
-                    <div class="info-card__body">
-                        <div class="info-row"><span class="info-label">Lon</span><span class="info-value" id="ip-lon">---.--°</span></div>
-                        <div class="info-row"><span class="info-label">Lat</span><span class="info-value" id="ip-lat">---.--°</span></div>
-                        <div class="info-row"><span class="info-label">Az</span><span class="info-value" id="ip-az">---°</span></div>
-                        <div class="info-row"><span class="info-label">El</span><span class="info-value" id="ip-el">---°</span></div>
-                        <div class="info-row"><span class="info-label">Alt</span><span class="info-value" id="ip-alt">--- km</span></div>
-                    </div>
-                </div>
-                <!-- Столбик 3: Орбита -->
-                <div class="info-card">
-                    <div class="info-card__title">Орбита</div>
-                    <div class="info-card__body">
-                        <div class="info-row"><span class="info-label">Виток</span><span class="info-value" id="ip-orbit">#---</span></div>
-                        <div class="info-row"><span class="info-label">Период</span><span class="info-value" id="ip-period">#---</span></div>
-                        <div class="info-row"><span class="info-label">Склонение</span><span class="info-value" id="ip-incl">#---°</span></div>
-                        <div class="info-row"><span class="info-label">Статус</span><span class="info-value" id="ip-status">--</span></div>
-                    </div>
-                </div>
-                <!-- Столбик 4: Пролёт -->
-                <div class="info-card">
-                    <div class="info-card__title">Пролёт</div>
-                    <div class="info-card__body">
-                        <div class="info-row"><span class="info-label">AOS</span><span class="info-value" id="ip-aos">--:--:--</span></div>
-                        <div class="info-row"><span class="info-label">TCA</span><span class="info-value" id="ip-tca">--:--:--</span></div>
-                        <div class="info-row"><span class="info-label">LOS</span><span class="info-value" id="ip-los">--:--:--</span></div>
-                        <div class="info-row"><span class="info-label">Длительность</span><span class="info-value" id="ip-dur">--:--</span></div>
-                    </div>
-                </div>
-                <!-- Столбик 5: Радиотехнические характеристики радиолинии-->
-                <div class="info-card">
-                    <div class="info-card__title">Радиолиния</div>
-                    <div class="info-card__body">
-                        <div class="info-row"><span class="info-label">ТМИ</span><span class="info-value" id="ip-tmi">--- MHz</span></div>
-                        <div class="info-row"><span class="info-label">Uplink</span><span class="info-value" id="ip-uplink">--- MHz</span></div>
-                        <div class="info-row"><span class="info-label">Downlink</span><span class="info-value" id="ip-downlink">--- MHz</span></div>
-                        <div class="info-row"><span class="info-label">Модуляция</span><span class="info-value" id="ip-mod">---</span></div>
-                    </div>
-                </div>
+                <!-- Скрытые элементы: совместимость с InfoPanel (ip-status, ip-uplink, ip-mod) -->
+                <span style="display:none" id="ip-status"></span>
+                <span style="display:none" id="ip-uplink"></span>
+                <span style="display:none" id="ip-mod"></span>
+            </div>
+            <!-- Кнопка восстановления overlay (видна, когда панель закрыта вручную) -->
+            <button type="button" class="overlay-panel__restore" id="overlay-panel-restore" title="Показать параметры КА">КА</button>
+
+            <!-- Контролы масштабирования карты (MAP-ZOOM-001): + / ⌂ / − -->
+            <div class="map-zoom-controls" id="map-zoom-controls" role="group" aria-label="Масштаб карты">
+                <button type="button" class="map-zoom-btn map-zoom-btn--in" id="map-zoom-in" title="Увеличить масштаб" aria-label="Увеличить масштаб">+</button>
+                <button type="button" class="map-zoom-btn map-zoom-btn--reset" id="map-zoom-reset" title="Сбросить масштаб" aria-label="Сбросить масштаб">⌂</button>
+                <button type="button" class="map-zoom-btn map-zoom-btn--out" id="map-zoom-out" title="Уменьшить масштаб" aria-label="Уменьшить масштаб">−</button>
             </div>
         </div>
     </section>
-
-    <!-- Правая колонка: графики в вертикальный столбик -->
-    <section class="charts-column">
-        <div class="azimuth-container">
-            <canvas id="azimuth-view" width="300" height="300"></canvas>
-        </div>
-        <div class="sky-view-container">
-            <canvas id="sky-view" width="300" height="350"></canvas>
-        </div>
-        <div class="elevation-container">
-            <canvas id="elevation-view" width="300" height="280"></canvas>
-        </div>
-    </section>
 </div>
+
+<!-- Layout Ручного режима: 5 горизонтальных блоков (ADR-004 § 4.3 v2026-06-04).
+     Порядок: Панорама → Лупа → Декодер → Телеметрия → Антенна (Az | Profile+Rotator | El).
+     SkyView остаётся в правой панели. -->
+<section class="layout-manual" id="layout-manual" aria-hidden="true">
+    <!-- Уровень 1: Панорама (FFT + метки передатчиков, клик → инфо сбоку) -->
+    <div class="ml-block ml-block--panorama">
+        <section class="ml-panel ml-panorama" id="manual-panorama">
+            <div class="ml-panel__body ml-panorama__body">
+                <div class="ml-panorama__fft">
+                    <canvas id="manual-panorama-fft" class="ml-canvas" role="img" aria-label="Панорама эфира: FFT по диапазонам антенны с маркерами передатчиков"></canvas>
+                    <aside class="ml-panorama__info" id="manual-panorama-info" hidden>
+                        <button class="ml-panorama__info-close" id="manual-panorama-info-close" aria-label="Закрыть">×</button>
+                        <div class="ml-panorama__info-body" id="manual-panorama-info-body"></div>
+                    </aside>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Уровень 2: Az | Лупа (спектр + водопад) | El; приёмник — строка на всю ширину -->
+    <div class="ml-block ml-block--rf">
+        <section class="ml-panel ml-az">
+            <div class="ml-panel__body ml-indicator-body">
+                <div class="ml-indicator-canvas">
+                    <canvas id="manual-azimuth-view" width="200" height="200" role="img" aria-label="Индикатор азимута КА и антенны"></canvas>
+                </div>
+                <div class="ml-indicator-info">
+                    <div class="ml-info-row">
+                        <span class="ml-info-label">Аз. ант.:</span>
+                        <span class="ml-info-value" id="manual-az-info-ant">---°</span>
+                    </div>
+                    <div class="ml-info-row">
+                        <span class="ml-info-label">Аз. КА:</span>
+                        <span class="ml-info-value" id="manual-az-info-sat">---°</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="ml-panel ml-loupe">
+            <div class="ml-loupe__fft">
+                <canvas id="manual-fft" class="ml-canvas" role="img" aria-label="БПФ-спектр узкой полосы активного канала"></canvas>
+            </div>
+            <div class="ml-loupe__scale-wrap">
+                <canvas id="manual-spec-scale" class="bp-freq-scale-canvas" aria-hidden="true"></canvas>
+            </div>
+            <div class="ml-loupe__wf">
+                <canvas id="manual-wf" class="ml-canvas" role="img" aria-label="Спектрограмма (водопад) активного канала"></canvas>
+            </div>
+        </section>
+
+        <section class="ml-panel ml-el">
+            <div class="ml-panel__body ml-indicator-body">
+                <div class="ml-indicator-canvas">
+                    <canvas id="manual-elevation-view" width="200" height="200" role="img" aria-label="Индикатор угла места КА и антенны"></canvas>
+                </div>
+                <div class="ml-indicator-info">
+                    <div class="ml-info-row">
+                        <span class="ml-info-label">Уг. ант.:</span>
+                        <span class="ml-info-value" id="manual-el-info-ant">---°</span>
+                    </div>
+                    <div class="ml-info-row">
+                        <span class="ml-info-label">Уг. КА:</span>
+                        <span class="ml-info-value" id="manual-el-info-sat">---°</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Управление приёмником — стиль секций как в app-header -->
+        <div class="ml-rx-bar" id="manual-rx-bar">
+            <div class="ml-rx-bar__section">
+                <label class="ml-rx-bar__label" for="manual-rx-freq">Частота</label>
+                <input class="ml-rx-bar__spin ml-rx-bar__spin--freq" id="manual-rx-freq" type="number" step="0.001" value="435.641694">
+                <select class="ml-rx-bar__unit-sel" id="manual-rx-freq-unit" aria-label="Единица частоты">
+                    <option value="hz">Гц</option>
+                    <option value="khz">кГц</option>
+                    <option value="mhz" selected>МГц</option>
+                </select>
+            </div>
+
+            <div class="ml-rx-bar__section">
+                <label class="ml-rx-bar__label" for="manual-rx-span">Полоса</label>
+                <select class="ml-rx-bar__sel" id="manual-rx-span">
+                    <option>2.4 МГц</option>
+                    <option selected>1.024 МГц</option>
+                    <option>256 кГц</option>
+                </select>
+            </div>
+
+            <div class="ml-rx-bar__section ml-rx-bar__section--gain">
+                <label class="ml-rx-bar__label" for="manual-rx-gain">Усиление</label>
+                <input class="ml-rx-bar__spin" id="manual-rx-gain" type="number" min="0" max="49.6" step="0.1" value="32">
+                <span class="ml-rx-bar__unit">дБ</span>
+                <button type="button" class="ml-rx-bar__pill-toggle" id="manual-rx-agc" aria-pressed="false">АРУ</button>
+            </div>
+
+            <div class="ml-rx-bar__section ml-rx-bar__section--doppler">
+                <label class="ml-rx-bar__label" for="manual-rx-doppler-mode">Доплер</label>
+                <select class="ml-rx-bar__unit-sel" id="manual-rx-doppler-mode">
+                    <option>Авто</option>
+                    <option>Фикс.</option>
+                </select>
+                <input class="ml-rx-bar__spin" id="manual-rx-doppler-val" type="number" step="1" value="1315">
+                <span class="ml-rx-bar__unit">Гц</span>
+            </div>
+
+            <div class="ml-rx-bar__section ml-rx-bar__section--demod">
+                <label class="ml-rx-bar__label" for="manual-rx-pipeline">Демод.</label>
+                <select class="ml-rx-bar__sel" id="manual-rx-pipeline">
+                    <option>FSK 9600 (G3RUH)</option>
+                    <option>FSK 4800</option>
+                    <option>FSK 1200</option>
+                    <option>GMSK 9600</option>
+                    <option>AFSK 1200 (AX.25)</option>
+                    <option>BPSK 1k2</option>
+                    <option>BPSK 9k6</option>
+                    <option>QPSK (CCSDS)</option>
+                    <option>CW</option>
+                    <option>FM</option>
+                    <option>OOK</option>
+                </select>
+                <button type="button" class="ml-rx-bar__pill-toggle" id="manual-rx-panorama" aria-pressed="false">Панорама</button>
+            </div>
+
+            <div class="ml-rx-bar__section ml-rx-bar__section--apply">
+                <button type="button" class="ml-rx-bar__apply" id="manual-rx-apply">Установить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Уровень 3: Eye/Constellation | Демодулятор (ужатый) | Профиль сеанса (doppler+elevation) -->
+    <div class="ml-block ml-block--decode">
+        <section class="ml-panel ml-eye" id="manual-eye-panel">
+            <div class="ml-panel__body ml-eye__canvas-wrap">
+                <div class="ml-eye__overlay" aria-label="Переключатель диаграммы">
+                    <div class="ml-eye__tabs" id="manual-eye-tabs" role="tablist"></div>
+                    <button type="button" class="ml-eye__auto" id="manual-eye-auto" title="Следует за полем «Демод.» в панели приёмника">auto</button>
+                </div>
+                <canvas id="manual-eye-canvas" class="ml-canvas" role="img" aria-label="Диаграмма качества демодуляции"></canvas>
+            </div>
+        </section>
+
+        <section class="ml-panel ml-demod" id="manual-demod-panel">
+            <header class="ml-panel__head">
+                <span class="ml-panel__title">Демодулятор</span>
+                <div class="ml-demod__channel" id="manual-current-channel">
+                    <span class="ml-demod__channel-led ml-demod__channel-led--lock" id="manual-ch-lock" title="Lock">●</span>
+                    <span class="ml-demod__channel-name" id="manual-ch-name">ISS-FSK</span>
+                    <span class="ml-demod__channel-freq" id="manual-ch-freq">437.800</span>
+                    <span class="ml-demod__channel-unit">MHz</span>
+                </div>
+            </header>
+            <div class="ml-panel__body ml-demod__grid" id="manual-demod-metrics">
+                <div class="ml-demod__metric">
+                    <span class="ml-demod__label">Lock</span>
+                    <span class="ml-demod__value ml-demod__value--ok" id="manual-dm-lock" title="Демодулятор удерживает символьную синхронизацию">●</span>
+                </div>
+                <div class="ml-demod__metric">
+                    <span class="ml-demod__label">SNR</span>
+                    <span class="ml-demod__value" id="manual-dm-snr" title="Signal-to-Noise Ratio в полосе IF">12.4 dB</span>
+                </div>
+                <div class="ml-demod__metric">
+                    <span class="ml-demod__label">Squelch</span>
+                    <span class="ml-demod__value ml-demod__value--ok" id="manual-dm-squelch" title="Состояние шумоподавителя (порог в dB)">Open / −85 dB</span>
+                </div>
+                <div class="ml-demod__metric">
+                    <span class="ml-demod__label">C/N0</span>
+                    <span class="ml-demod__value" id="manual-dm-cn0" title="Carrier-to-Noise density, dB-Hz">52.3 dB·Hz</span>
+                </div>
+                <div class="ml-demod__metric">
+                    <span class="ml-demod__label">Pipeline</span>
+                    <span class="ml-demod__value" id="manual-dm-pipeline" title="Активный демодулятор / декодер">FSK 9600</span>
+                </div>
+                <div class="ml-demod__metric">
+                    <span class="ml-demod__label">Es/N0</span>
+                    <span class="ml-demod__value" id="manual-dm-esn0" title="Энергия на символ / шум, дБ">8.4 dB</span>
+                </div>
+                <div class="ml-demod__metric">
+                    <span class="ml-demod__label">Скорость</span>
+                    <span class="ml-demod__value" id="manual-dm-rate" title="Символьная скорость">9.6 ksym/s</span>
+                </div>
+                <div class="ml-demod__metric">
+                    <span class="ml-demod__label">BER</span>
+                    <span class="ml-demod__value" id="manual-dm-ber" title="Bit Error Rate (после FEC)">3.2e-4</span>
+                </div>
+                <div class="ml-demod__metric">
+                    <span class="ml-demod__label">RSSI</span>
+                    <span class="ml-demod__value" id="manual-dm-rssi" title="Уровень сигнала на входе приёмника">−42 dBm</span>
+                </div>
+                <div class="ml-demod__metric">
+                    <span class="ml-demod__label">AFC</span>
+                    <span class="ml-demod__value" id="manual-dm-afc" title="Текущая коррекция AFC (Hz)">−18 Hz</span>
+                </div>
+                <div class="ml-demod__metric">
+                    <span class="ml-demod__label">Freq off</span>
+                    <span class="ml-demod__value" id="manual-dm-foff" title="Смещение от номинала до AFC-коррекции">+1.2 kHz</span>
+                </div>
+                <div class="ml-demod__metric">
+                    <span class="ml-demod__label">FEC corr</span>
+                    <span class="ml-demod__value" id="manual-dm-fec" title="Байт, исправленных FEC за окно">12 B</span>
+                </div>
+                <div class="ml-demod__metric">
+                    <span class="ml-demod__label">Frames</span>
+                    <span class="ml-demod__value" id="manual-dm-frames" title="Принято кадров за сеанс">128</span>
+                </div>
+                <div class="ml-demod__metric">
+                    <span class="ml-demod__label">Sync</span>
+                    <span class="ml-demod__value" id="manual-dm-sync" title="Срабатываний синхро-последовательности">131</span>
+                </div>
+                <div class="ml-demod__metric">
+                    <span class="ml-demod__label">CRC</span>
+                    <span class="ml-demod__value ml-demod__value--ok" id="manual-dm-crc" title="Статус последней проверки CRC">OK</span>
+                </div>
+                <div class="ml-demod__metric">
+                    <span class="ml-demod__label">Last frame</span>
+                    <span class="ml-demod__value" id="manual-dm-last" title="Время с последнего валидного кадра">0.8 s</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="ml-panel ml-profile" id="manual-pass-profile">
+            <div class="ml-panel__body ml-profile__body">
+                <canvas id="manual-pass-profile-canvas" class="ml-canvas" role="img" aria-label="Профиль пролёта: Elevation + Doppler по времени"></canvas>
+            </div>
+        </section>
+    </div>
+
+    <!-- Уровень 4: Телеметрия (широкая, 1 пакет = 1 строка) -->
+    <div class="ml-block ml-block--tmi">
+        <section class="ml-panel ml-tmi" id="manual-tmi-panel">
+            <header class="ml-panel__head">
+                <span class="ml-panel__title">Телеметрия</span>
+            </header>
+            <div class="ml-panel__body ml-tmi__scroll" id="manual-tmi-scroll">
+                <table class="ml-tmi__table">
+                    <thead>
+                        <tr>
+                            <th class="ml-tmi__th">Канал</th>
+                            <th class="ml-tmi__th">Время</th>
+                            <th class="ml-tmi__th">Frame#</th>
+                            <th class="ml-tmi__th">CRC</th>
+                            <th class="ml-tmi__th">Параметры</th>
+                        </tr>
+                    </thead>
+                    <tbody id="manual-tmi-tbody"></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+</section>
 
 <!-- Модальное окно подтверждения завершения сеанса -->
 <div id="track-end-session-modal" class="modal modal--hidden" role="dialog" aria-labelledby="track-end-session-title" aria-modal="true">
@@ -109,4 +481,124 @@
         </div>
     </div>
 </div>
+{{end}}
+
+{{define "tracking-right-panel"}}
+<!-- Боковая панель: план сеансов наблюдения + SkyView, на всю высоту окна -->
+<section class="right-panel" id="right-panel">
+    <div class="panel-header">
+        <span class="panel-header__title">ПЛАН СЕАНСОВ НАБЛЮДЕНИЯ</span>
+        <button class="panel-collapse-btn" id="right-panel-toggle" title="Свернуть">▶</button>
+    </div>
+    <div class="right-panel__body">
+        <div class="passes-compact" id="passes-compact">
+            <div class="passes-compact__scroll">
+                <table class="passes-compact__table">
+                    <thead>
+                        <tr>
+                            <th class="pc-th-track pc-th-track--off" id="pc-th-track-toggle" title="">
+                                <span id="pc-th-track-toggle-inner" class="pc-th-track-toggle-inner"></span>
+                            </th>
+                            <th class="pc-th-sat">
+                                <div class="pc-th-sat__stack">
+                                    <span class="pc-th-sat__line">ИМЯ КА</span>
+                                    <span class="pc-th-sat__line">NORAD ID</span>
+                                </div>
+                            </th>
+                            <th class="pc-th-azel">
+                                <div class="pc-th-azel__stack">
+                                    <span class="pc-th-azel__line">Азим.</span>
+                                    <span class="pc-th-azel__line">Уг.мест</span>
+                                </div>
+                            </th>
+                            <th class="pc-th-countdown">ЗРВ</th>
+                            <th class="pc-th-orbit">
+                                <div class="pc-th-orbit__stack" title="Максимальный угол места (TCA) и средняя высота орбиты">
+                                    <span class="pc-th-orbit__line">max El</span>
+                                    <span class="pc-th-orbit__line">Выс.</span>
+                                </div>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="passes-compact-body"></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="right-panel__controls">
+            <button class="rp-ctrl rp-ctrl--track" id="rp-track" disabled title="Сопровождать выбранный спутник: антенна, узкополосный водопад" aria-label="Сопровождать"><span class="rp-ctrl__label">Сопровождать</span></button>
+            <button class="rp-ctrl rp-ctrl--reset" id="rp-reset" disabled title="Снять с наблюдения" aria-label="Снять с наблюдения"><span class="rp-ctrl__label">Сброс</span></button>
+        </div>
+        <!-- SkyView: окружность 300×300 px + отдельная панель информации (не влияет на размер окна отрисовки) -->
+        <div class="right-panel__skyview" id="right-panel-skyview">
+            <div class="right-panel__skyview-canvas">
+                <canvas id="sky-view" width="300" height="300" role="img" aria-label="Полусфера небесной сцены: треки спутников по азимуту и углу места"></canvas>
+            </div>
+            <div class="skyview-info" id="skyview-info">
+                <div class="skyview-info__row">
+                    <div class="skyview-info__group">
+                        <span class="skyview-info__label skyview-info__label--aos">AOS:</span>
+                        <span class="skyview-info__value" id="skyview-info-aos">--:--:--</span>
+                    </div>
+                    <div class="skyview-info__group">
+                        <span class="skyview-info__label skyview-info__label--los">LOS:</span>
+                        <span class="skyview-info__value" id="skyview-info-los">--:--:--</span>
+                    </div>
+                    <!-- <div class="skyview-info__group">
+                        <span class="skyview-info__label skyview-info__label--dur">Длит.:</span>
+                        <span class="skyview-info__value" id="skyview-info-dur">—</span>
+                    </div> -->
+                    <div class="skyview-info__group">
+                        <span class="skyview-info__label skyview-info__label--rem">Ост.:</span>
+                        <span class="skyview-info__value" id="skyview-info-remaining">—</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{{end}}
+
+{{define "tracking-bottom-panel"}}
+<!-- Авто-режим: внизу единый список передатчиков всех КА группы со встроенным
+     sparkline активности на каждой строке + правее узкая колонка со сводным
+     графиком суммарной активности группы во времени. Заголовки UI:
+     Подпись «Передатчики» — столбиком в .bottom-panel__side. См. ADR-004 §3.4.
+
+     Видимость самой панели управляется body.mode-* в main.css.
+     Логика — auto-link.js (подключается отдельно). -->
+<section class="bottom-panel" id="bottom-panel">
+    <div class="bottom-panel__side">
+        <button class="bottom-panel__layout-btn" id="auto-link-layout-toggle" title="Переключить горизонт./вертик. раскладку">⇄</button>
+        <span class="bottom-panel__mode" id="auto-link-tx-title" aria-label="Передатчики"><span>П</span><span>е</span><span>р</span><span>е</span><span>д</span><span>а</span><span>т</span><span>ч</span><span>и</span><span>к</span><span>и</span></span>
+        <button class="panel-collapse-btn" id="bottom-panel-toggle" title="Свернуть">▼</button>
+    </div>
+    <div class="bottom-panel__body" id="bottom-panel-body">
+
+        <!-- Связка нижней панели Авто (заполняется auto-link.js) -->
+        <div class="auto-link" id="auto-link">
+            <section class="auto-link__col auto-link__col--tx" aria-labelledby="auto-link-tx-title">
+                <div class="auto-link__tx-list-header" aria-hidden="true">
+                    <span class="auto-link__th-col auto-link__th-ka">
+                        <span class="auto-link__th-ka__stack">
+                            <span class="auto-link__th-ka__line">ИМЯ КА</span>
+                            <span class="auto-link__th-ka__line">NORAD ID</span>
+                        </span>
+                    </span>
+                    <span class="auto-link__th-col">Частота</span>
+                    <span class="auto-link__th-col">Модуляция</span>
+                    <span class="auto-link__th-col">Сигнал</span>
+                    <span class="auto-link__th-col">Декод. / Битые</span>
+                    <span class="auto-link__th-col">SNR</span>
+                    <span class="auto-link__th-col">Доплер</span>
+                    <span class="auto-link__th-col">Lock</span>
+                    <span class="auto-link__th-col">Водопад</span>
+                </div>
+                <div class="auto-link__tx-list" id="auto-link-tx-list" role="list">
+                    <p class="auto-link__placeholder">Загрузка списка передатчиков…</p>
+                </div>
+            </section>
+        </div>
+
+    </div>
+</section>
 {{end}}

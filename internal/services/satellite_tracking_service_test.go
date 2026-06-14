@@ -4,6 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -129,6 +133,25 @@ func TestTrackSatellite(t *testing.T) {
 	}
 }
 
+func TestTrackSatelliteExcluded(t *testing.T) {
+	svc, cancel := setupTrackingService(t)
+	defer cancel()
+
+	svc.WithExcluder(fakeExcluder{issNoradID: true})
+
+	err := svc.TrackSatellite(issNoradID)
+	if err == nil {
+		t.Fatal("expected error when tracking an excluded satellite")
+	}
+	var excludedErr *SatelliteExcludedError
+	if !errors.As(err, &excludedErr) {
+		t.Errorf("expected SatelliteExcludedError, got %T", err)
+	}
+	if svc.TrackedCount() != 0 {
+		t.Errorf("excluded satellite must not be tracked, got %d", svc.TrackedCount())
+	}
+}
+
 func TestTrackSatelliteNotFound(t *testing.T) {
 	svc, cancel := setupTrackingService(t)
 	defer cancel()
@@ -179,8 +202,8 @@ func TestComputePosition(t *testing.T) {
 		t.Errorf("expected norad_id %d, got %d", issNoradID, pos.NoradID)
 	}
 
-	if pos.Name != "ISS (ZARYA)" {
-		t.Errorf("expected name 'ISS (ZARYA)', got '%s'", pos.Name)
+	if pos.Name != "ISS" {
+		t.Errorf("expected name 'ISS', got '%s'", pos.Name)
 	}
 
 	// Широта ISS должна быть в пределах ±52° (наклонение 51.6°).
@@ -211,6 +234,16 @@ func TestComputePosition(t *testing.T) {
 	// Дальность: > 0.
 	if pos.Range <= 0 {
 		t.Errorf("range should be positive: %.1f", pos.Range)
+	}
+
+	if pos.MapMarkerFwdLon == nil || pos.MapMarkerFwdLat == nil {
+		t.Fatal("MapMarkerFwdLon/Lat should be set (second propagation step)")
+	}
+	if pos.MapMarkerRotDeg == nil {
+		t.Fatal("MapMarkerRotDeg should be set (plat carré chord fallback)")
+	}
+	if *pos.MapMarkerRotDeg < -180 || *pos.MapMarkerRotDeg > 180 {
+		t.Errorf("MapMarkerRotDeg out of [-180,180]: %v", *pos.MapMarkerRotDeg)
 	}
 
 	// Зона видимости: не nil, сегменты содержат ~72 точки (+ граничные при антимеридиане).
@@ -252,7 +285,7 @@ func TestPositionDataJSON(t *testing.T) {
 		t.Fatalf("json.Unmarshal failed: %v", unmarshalErr)
 	}
 
-	requiredKeys := []string{"norad_id", "name", "lat", "lon", "alt", "az", "el", "range"}
+	requiredKeys := []string{"norad_id", "name", "lat", "lon", "alt", "az", "el", "range", "range_rate"}
 	for _, key := range requiredKeys {
 		if _, ok := m[key]; !ok {
 			t.Errorf("missing key in positionData JSON: %s", key)
@@ -261,6 +294,16 @@ func TestPositionDataJSON(t *testing.T) {
 
 	if _, ok := m["visibility_zone"]; !ok {
 		t.Error("missing visibility_zone in positionData JSON")
+	}
+
+	if _, ok := m["map_marker_fwd_lon"]; !ok {
+		t.Error("missing map_marker_fwd_lon in positionData JSON")
+	}
+	if _, ok := m["map_marker_fwd_lat"]; !ok {
+		t.Error("missing map_marker_fwd_lat in positionData JSON")
+	}
+	if _, ok := m["map_marker_rot_deg"]; !ok {
+		t.Error("missing map_marker_rot_deg in positionData JSON")
 	}
 
 	// TS теперь не в positionData, а в satelliteStateUpdate.
@@ -553,4 +596,66 @@ func TestRoundTo(t *testing.T) {
 			t.Errorf("roundTo(%.5f, %d) = %.5f, expected %.5f", tt.val, tt.decimals, result, tt.expected)
 		}
 	}
+}
+
+func TestBroadcastGroupUpdate_OrbitMetricsFields(t *testing.T) {
+	ctx := t.Context()
+
+	hub := handlers.NewSSEHub()
+	go hub.Run(ctx)
+
+	store := setupTLEStore(t)
+	observer := tracker.NewObserver(47.315813, 39.788243, 0.070)
+	svc := NewSatelliteTrackingService(hub, store, observer)
+
+	tle, ok := store.Get(issNoradID)
+	if !ok {
+		t.Fatal("ISS TLE missing in store")
+	}
+	wantAlt := roundTo(tle.MeanAltitudeKm(), 0)
+
+	now := time.Now().UTC()
+	group := ConcurrentPassGroup{
+		Satellites: []PassInfo{
+			{
+				NoradID: issNoradID,
+				SatName: "ISS",
+				Pass: tracker.Pass{
+					NoradID:  issNoradID,
+					SatName:  "ISS",
+					AOS:      now.UnixMilli(),
+					LOS:      now.Add(10 * time.Minute).UnixMilli(),
+					Duration: 600,
+					TCAEl:    51.3,
+				},
+				IsVisible: true,
+			},
+		},
+		PrimarySatID: issNoradID,
+		TimeWindow: TimeWindow{
+			Start: now.UnixMilli(),
+			End:   now.Add(10 * time.Minute).UnixMilli(),
+		},
+	}
+
+	svc.broadcastGroupUpdate(group, now, 0)
+
+	// Проверяем кеш Hub: последний satellite_group_update должен содержать orbit metrics.
+	req := httptest.NewRequest(http.MethodGet, "/api/sse", nil)
+	rec := httptest.NewRecorder()
+	go hub.ServeHTTP(rec, req)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		body := rec.Body.String()
+		if strings.Contains(body, `"tca_el":51.3`) && strings.Contains(body, `"orbit_alt_km":`) {
+			if !strings.Contains(body, fmt.Sprintf(`"orbit_alt_km":%.0f`, wantAlt)) &&
+				!strings.Contains(body, fmt.Sprintf(`"orbit_alt_km":%g`, wantAlt)) {
+				t.Errorf("orbit_alt_km in payload, want ~%.0f; body fragment: %s", wantAlt, body)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("satellite_group_update with tca_el/orbit_alt_km not received; body=%q", rec.Body.String())
 }

@@ -1,6 +1,24 @@
 /* SatWatch - Dark Theme Satellite Tracker */
 
 :root {
+    /* Высота нижней панели = блок графика + внутренние отступы вкладки (8px) */
+    --bottom-panel-height: calc(var(--indicator-block-height) + 10px);
+    --footer-height: 44px;
+
+    /* Правая панель: под SkyView 300×300 px, расписание сеансов наблюдения и отступы */
+    --right-panel-width: 340px;
+
+    /* Панели информации (SkyView, Az/El) — фиксированная высота (подобрана под макет) */
+    --info-panel-height: 28px;
+    /* Размер области графика для SkyView и Az/El — единое значение для одинаковой высоты */
+    --indicator-graph-size: 300px;
+    /* Ширина блока SkyView в правой панели (график остаётся 300×300, блок шире для инфо) */
+    --skyview-block-width: 320px;
+    /* Общая высота блока «график + инфо-панель» для всех трёх индикаторов */
+    --indicator-block-height: calc(var(--indicator-graph-size) + var(--info-panel-height));
+    --info-panel-padding-x: 8px;
+    --info-panel-padding-y: 4px;
+
     /* Colors - Dark space theme */
     --bg-primary: #0a0e14;
     --bg-secondary: #12171f;
@@ -8,8 +26,9 @@
     --bg-elevated: #222938;
     
     --text-primary: #e6e8eb;
-    --text-secondary: #8b919a;
-    --text-muted: #5c6370;
+    /* Подписи и вторичный текст — белый  */
+    --text-secondary: #e6e8eb;
+    --text-muted: #e6e8eb;
     
     --accent-primary: #00d4aa;
     --accent-secondary: #00a8ff;
@@ -35,6 +54,28 @@
     --radius-sm: 4px;
     --radius-md: 8px;
     --radius-lg: 12px;
+
+    /* State layers (Material-inspired): прозрачность overlay-слоя для интерактивных состояний */
+    --state-hover-opacity:    0.08;
+    --state-focus-opacity:    0.12;
+    --state-pressed-opacity:  0.16;
+    --state-disabled-opacity: 0.38;
+}
+
+/* Инфо-панели под графиками (SkyView) — единая высота и шрифт.
+   Az/El в Ручном используют свои стили в manual-layout.css. */
+.skyview-info {
+    min-height: var(--info-panel-height);
+    max-height: var(--info-panel-height);
+    height: var(--info-panel-height);
+    box-sizing: border-box;
+    overflow: hidden;
+    padding: var(--info-panel-padding-y) var(--info-panel-padding-x);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 12px;
 }
 
 /* Reset & Base */
@@ -46,6 +87,7 @@
 
 html {
     font-size: 14px;
+    overflow-x: hidden;
 }
 
 body {
@@ -54,72 +96,13 @@ body {
     color: var(--text-primary);
     line-height: 1.5;
     min-height: 100vh;
-    display: grid;
-    grid-template-columns: 50px 1fr;
-}
-
-/* ===== Sidebar (вертикальное меню) ===== */
-.sidebar {
-    display: flex;
-    flex-direction: column;
-    background: var(--bg-secondary);
-    border-right: 1px solid var(--border-color);
     height: 100vh;
-    position: sticky;
-    top: 0;
-    z-index: 100;
+    overflow-x: hidden;
+    display: grid;
+    grid-template-columns: 1fr;
+    /* Строка 1: header; строка 2: карта+правая панель; строка 3: нижняя панель */
+    grid-template-rows: 44px 1fr var(--bottom-panel-height);
 }
-
-.sidebar-logo {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 50px;
-    font-size: 1.5rem;
-    border-bottom: 1px solid var(--border-color);
-    cursor: default;
-}
-
-.sidebar-nav {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-xs);
-    padding: var(--spacing-sm);
-    flex: 1;
-}
-
-.sidebar-tab {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 34px;
-    height: 34px;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: var(--radius-md);
-    color: var(--text-secondary);
-    text-decoration: none;
-    transition: all 0.2s ease;
-    cursor: pointer;
-}
-
-.sidebar-tab svg {
-    width: 20px;
-    height: 20px;
-}
-
-.sidebar-tab:hover {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-}
-
-.sidebar-tab.active {
-    background: var(--bg-tertiary);
-    border-color: var(--accent-primary);
-    color: var(--accent-primary);
-}
-
-/* sidebar-footer удалён — SSE-индикатор перенесён в station-footer */
 
 /* Индикатор статуса SSE: три состояния, иконка broadcast */
 .sse-status {
@@ -176,34 +159,458 @@ body {
     opacity: 1;
 }
 
-/* ===== Main Wrapper ===== */
+/* ===== Main Wrapper — на странице отслеживания: 3 строки (header | main | bottom-panel) ===== */
+/* overflow: visible обязательно: при overflow-y:hidden браузер меняет overflow-x на auto */
 .main-wrapper {
-    display: flex;
-    flex-direction: column;
-    min-height: 100vh;
-    overflow: hidden;
+    grid-column: 1;
+    grid-row: 1 / -1;
+    display: grid;
+    grid-template-rows: 44px 1fr;
+    grid-template-columns: 1fr;
+    min-height: 0;
+    overflow: visible;
 }
 
-/* Main Content */
+.main-wrapper.tracking-page {
+    grid-template-columns: 1fr var(--right-panel-width);
+    grid-template-rows: 44px 1fr var(--bottom-panel-height);
+}
+
+/* ───────────────── Basic-станция (без SDR-оборудования) ─────────────────
+   Layout упрощается: нет нижней панели РТН, нет кнопок Сопровождать/Сброс.
+   Остаётся header + карта + правая панель.
+   Grid: 2 строки (header + карта). */
+
+body.station-basic .main-wrapper.tracking-page {
+    grid-template-rows: 44px 1fr;
+}
+
+/* Правая панель: занимает обе строки (header + карта) */
+body.station-basic .right-panel {
+    grid-row: 1 / -1;
+}
+
+body.station-basic .bottom-panel {
+    display: none;
+}
+
+/* Карта: без нижней панели flex-контейнер растягивает canvas.
+   Центрируем карту вертикально и фиксируем пропорции. */
+body.station-basic .tracking-left {
+    justify-content: center;
+}
+
+body.station-basic .tracking-left .map-area {
+    flex: none;
+    aspect-ratio: 2 / 1;
+    width: 100%;
+    max-height: 100%;
+}
+
+/* Кнопки сопровождения: в basic-режиме скрыты (нет SDR) */
+body.station-basic .right-panel__controls {
+    display: none;
+}
+
+/* Сопровождать / Сброс — только в Ручном (tracking-page на .main-wrapper, не на body) */
+body:not(.station-basic):not(.mode-manual) .right-panel__controls {
+    display: none;
+}
+
+body.mode-manual:not(.station-basic) .right-panel__controls {
+    display: flex;
+}
+
+/* ───────────────── Авто (Обзор): карта + нижняя панель auto-link ───────────────── */
+
+body.mode-overview:not(.station-basic) #tracking-layout {
+    display: flex;
+}
+
+body.mode-overview:not(.station-basic) #layout-manual {
+    display: none;
+}
+
+body.mode-overview:not(.station-basic) .bottom-panel {
+    display: flex;
+}
+
+body.mode-overview:not(.station-basic) .main-wrapper.tracking-page {
+    grid-template-rows: 44px 1fr var(--bottom-panel-height);
+}
+
+/* Свёрнутая нижняя панель в Авто: правило mode-overview выше по специфичности,
+   чем .bottom-panel-collapsed — без этого override высота строки не уменьшается. */
+body.mode-overview:not(.station-basic) .main-wrapper.tracking-page.bottom-panel-collapsed {
+    grid-template-rows: 44px 1fr 36px;
+}
+
+/* ───────────────── Ручной режим: layout вместо карты, нижняя панель скрыта ─────────────────
+   В Авто карта (#tracking-layout) и нижняя панель видны.
+   В Ручном карту прячем, нижнюю панель прячем, а #layout-manual растягивается во всю
+   главную зону. Grid-rows main-wrapper переключаем на 2 строки (без bottom-panel). */
+
+#layout-manual {
+    display: none;
+}
+
+body.mode-manual:not(.station-basic) #tracking-layout {
+    display: none;
+}
+
+body.mode-manual:not(.station-basic) #layout-manual {
+    display: grid;
+}
+
+body.mode-manual:not(.station-basic) .bottom-panel {
+    display: none;
+}
+
+body.mode-manual:not(.station-basic) .main-wrapper.tracking-page {
+    grid-template-rows: 44px 1fr;
+}
+
+/* В Ручном правая панель занимает обе строки (как при station-basic) */
+body.mode-manual:not(.station-basic) .right-panel {
+    grid-row: 1 / -1;
+}
+
+/* Main Content — левая колонка (карта + infoPanel), строка 2 (после header) */
 .main {
-    flex: 1;
+    grid-row: 2;
+    grid-column: 1;
     padding: 4px;
     overflow-y: auto;
+    overflow-x: visible;
+    min-height: 0;
+    position: relative;
 }
 
-/* ===== Station Footer (статусная строка) ===== */
+/* ───────────────── App Header ─────────────────
+   Секция = inline-flex + align-items:center; без вложенных рядов и stretch. */
+.app-header {
+    grid-row: 1;
+    grid-column: 1;
+    box-sizing: border-box;
+    height: 44px;
+    padding: 0 10px;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+    font-family: var(--font-mono);
+    font-size: 1.0625rem;
+    line-height: 1;
+    user-select: none;
+    --app-header-section-h: 36px;
+    --app-header-control-h: 28px;
+    --app-header-section-border: color-mix(in srgb, var(--border-color), white 50%);
+}
+
+.app-header__controls,
+.app-header__info {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.app-header__section {
+    box-sizing: border-box;
+    display: inline-flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    height: var(--app-header-section-h);
+    margin: 0;
+    padding: 0 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--app-header-section-border);
+    border-radius: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.app-header__controls .app-header__section {
+    padding: 0 8px 0 10px;
+}
+
+.app-header__section > .app-header__label {
+    display: inline-flex;
+    align-items: center;
+    height: var(--app-header-control-h);
+    margin: 0;
+    padding: 0 8px 0 0;
+    line-height: 1;
+    border-right: 1px solid var(--app-header-section-border);
+    box-sizing: border-box;
+}
+
+.app-header__section > .app-header__icon:first-child {
+    margin: 0;
+    padding: 0 8px 0 0;
+    border-right: 1px solid var(--app-header-section-border);
+    box-sizing: content-box;
+}
+
+.app-header__sep {
+    display: none;
+}
+
+.app-header__spacer {
+    flex: 1;
+    min-width: 4px;
+}
+
+.app-header__icon {
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+}
+
+.app-header__icon--observer {
+    width: 24px;
+    height: 24px;
+    color: var(--observer-marker, #d4a040);
+}
+
+.app-header__icon--connection {
+    width: 34px;
+    height: 24px;
+}
+
+.app-header__label,
+.app-header__text,
+.app-header__subtext {
+    font-size: 1rem;
+}
+
+.app-header__label {
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.app-header__text {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.app-header__subtext {
+    color: var(--text-muted);
+}
+
+/* Переключатель режима: одна «включённая» кнопка, состояние запоминается визуально */
+.app-header__mode-toggle {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: stretch;
+    gap: 2px;
+    height: var(--app-header-control-h);
+    margin: 0;
+    padding: 2px;
+    background: var(--bg-primary);
+    border: 1px solid var(--app-header-section-border);
+    border-radius: 4px;
+}
+
+.app-header__mode-toggle__btn {
+    appearance: none;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 4.5rem;
+    margin: 0;
+    padding: 0 12px;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.app-header__mode-toggle__btn:hover:not(:disabled):not(.app-header__mode-toggle__btn--on) {
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+.app-header__mode-toggle__btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+/* Включённый сегмент toggle — остаётся до следующего выбора */
+.app-header__mode-toggle__btn--on {
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.app-header__mode-toggle__btn:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 1px;
+}
+
+.app-header__dropdown {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    box-sizing: border-box;
+    height: var(--app-header-control-h);
+    margin: 0;
+    padding: 0 28px 0 10px;
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--app-header-section-border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: var(--app-header-control-h);
+    cursor: pointer;
+    background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                      linear-gradient(135deg, currentColor 50%, transparent 50%);
+    background-position: calc(100% - 10px) calc(50% - 2px), calc(100% - 6px) calc(50% - 2px);
+    background-size: 4px 4px, 4px 4px;
+    background-repeat: no-repeat;
+}
+
+.app-header__dropdown:hover {
+    color: var(--accent-primary);
+}
+
+.app-header__dropdown option {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.app-header__settings {
+    appearance: none;
+    -webkit-appearance: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+}
+
+.app-header__settings:hover {
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+}
+
+.app-header__observer {
+    gap: 8px;
+}
+
+.app-header__observer .app-header__text + .app-header__subtext {
+    padding-left: 10px;
+    border-left: 1px solid var(--app-header-section-border);
+}
+
+.app-header__time {
+    gap: 0;
+    padding: 0 4px;
+}
+
+.app-header__time-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px;
+}
+
+.app-header__time-item + .app-header__time-item {
+    border-left: 1px solid var(--app-header-section-border);
+}
+
+.app-header__time-label {
+    color: var(--text-muted);
+    font-weight: 600;
+    padding-right: 6px;
+    border-right: 1px solid var(--app-header-section-border);
+}
+
+.app-header__time-value {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+/* В хедере .sse-status не переопределяет display секции */
+.app-header__connection.sse-status {
+    gap: 8px;
+    min-width: 0;
+    min-height: 0;
+    padding: 0 10px;
+}
+
+.app-header__connection.sse-status--connected {
+    color: var(--accent-success);
+    border-color: var(--accent-success);
+}
+
+.app-header__connection.sse-status--connecting {
+    color: var(--accent-warning);
+    border-color: var(--accent-warning);
+}
+
+.app-header__connection.sse-status--disconnected {
+    color: var(--text-muted);
+    opacity: 0.6;
+}
+
+body.station-basic .app-header__mode-toggle__btn {
+    pointer-events: none;
+    opacity: 0.4;
+}
+
+body.station-basic .app-header__dropdown {
+    pointer-events: none;
+    opacity: 0.4;
+}
+
+/* Левая колонка страницы отслеживания: карта + infoPanel под картой */
+.tracking-left {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    height: 100%;
+    min-height: 0;
+}
+
+.tracking-left .map-area {
+    flex: 1;
+    min-height: 0;
+}
+
+/* ===== Station Footer — на всю ширину (обе колонки на странице отслеживания) ===== */
 .station-footer {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    position: relative;
+    width: 100%;
+    padding-left: 8px;
+    padding-right: 8px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 44px;
-    padding: 0 12px;
+    height: var(--footer-height);
     background: var(--bg-secondary);
     border-top: 1px solid var(--border-color);
     font-family: var(--font-mono);
-    font-size: 1.1rem;
+    font-size: var(--station-footer-font-size, 1.1rem);
     color: var(--text-secondary);
     flex-shrink: 0;
+    box-sizing: border-box;
 }
 
 .station-footer__left,
@@ -211,6 +618,65 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
+}
+
+/* Скрытый текст для screen readers (подпись к селектору темы) */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Выпадающий список темы — в стиле бейджей футера */
+.station-footer__theme-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    margin-left: 2px; /* вместе с gap слева — явный зазор от плашки SSE */
+    margin-right: 2px;
+}
+
+.station-footer__theme-label {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.station-footer__theme-select {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 4px 8px;
+    min-width: 12.5rem;
+    max-width: min(40vw, 18rem);
+    cursor: pointer;
+    line-height: 1.2;
+}
+
+.station-footer__theme-select:hover {
+    border-color: var(--text-muted, var(--border-color));
+}
+
+.station-footer__theme-select:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+}
+
+.station-footer__left .station-footer__item:first-child {
+    padding-left: 2;
 }
 
 .station-footer__item,
@@ -252,10 +718,10 @@ body {
     color: var(--accent-success);
 }
 
-/* SSE-индикатор в footer */
+/* SSE-индикатор в footer: полная подпись без обрезки; flex-shrink: 0 — не сжимать в пользу селекта темы */
 .station-footer .sse-status {
+    flex-shrink: 0;
     padding: 3px 10px;
-    min-width: auto;
     min-height: auto;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
@@ -268,37 +734,306 @@ body {
 }
 
 .station-footer .sse-status__label {
-    max-width: 6em;
     opacity: 1;
     font-size: 1rem;
 }
 
-/* ===== Tracking Layout - Grid: карта слева, графики справа ===== */
-.tracking-layout {
-    display: grid;
-    grid-template-columns: 1fr minmax(220px, 22vw);
-    gap: 4px;
-    height: calc(100vh - 52px);
-    min-height: 0;
+/* Правая панель свёрнута → минимизация по ширине (30px), класс на main-wrapper */
+.main-wrapper.tracking-page.right-collapsed {
+    grid-template-columns: 1fr 30px;
+    transition: grid-template-columns 300ms ease;
 }
 
-/* Левая колонка: карта + инфо под ней */
-.map-column {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+.main-wrapper.tracking-page.right-collapsed .right-panel .panel-header__title {
+    display: none;
+}
+
+.main-wrapper.tracking-page.right-collapsed .right-panel .panel-header {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding: 0 4px;
+}
+
+.main-wrapper.tracking-page.right-collapsed .right-panel .panel-header .panel-collapse-btn {
+    grid-column: 1;
+    justify-self: center;
+    margin: 0;
+}
+
+.main-wrapper.tracking-page.right-collapsed .right-panel__body {
+    display: none;
+}
+
+/* Нижняя панель свёрнута: узкая полоска слева (50px), высота под одну кнопку */
+.main-wrapper.bottom-panel-collapsed {
+    grid-template-rows: 44px 1fr 36px;
+}
+
+/* Свёрнутая нижняя панель: карта как в basic-режиме — 2:1 по центру, без растягивания */
+.main-wrapper.tracking-page.bottom-panel-collapsed .tracking-left {
+    justify-content: center;
+}
+
+.main-wrapper.tracking-page.bottom-panel-collapsed .tracking-left .map-area {
+    flex: none;
+    aspect-ratio: 2 / 1;
+    width: 100%;
+    max-height: 100%;
+}
+
+/* ─── Зона карты ─── */
+.map-area {
+    position: relative;
     min-height: 0;
+    overflow: hidden;
 }
 
 .earth-view-container {
-    flex: 1;
     position: relative;
+    width: 100%;
+    height: 100%;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
-    padding: 2px;
+    /* visible: волны сигнала и drop-shadow маркера не режутся у скругления */
+    overflow: visible;
+}
+
+/* Только холст режем по скруглению; DOM-маркеры — поверх, вне overflow:hidden */
+.earth-view-canvas-wrap {
+    position: absolute;
+    inset: 0;
     overflow: hidden;
-    min-height: 200px;
+    border-radius: inherit;
+    z-index: 0;
+}
+
+/* SVG-маркеры на карте (DOM поверх canvas).
+   Якорь = квадрат под иконку; размер синхронизировать с earthview.js MAP_SAT_MARKER_HALF_PX. */
+.map-sat-marker {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 56px;
+    height: 56px;
+    overflow: visible;
+    pointer-events: none;
+    z-index: 25;
+    display: block;
+    will-change: left, top;
+    /* Позиция синхронна с canvas (SSE ~1 Гц) — без CSS-инерции. */
+    transition: none;
+}
+
+.map-sat-icon {
+    display: block;
+    width: 56px;
+    height: 56px;
+    overflow: visible;
+}
+
+/* Поворот иконки по курсу траектории; бум ⊥ направлению. transform — из earthview.js */
+.map-sat-flip {
+    width: 56px;
+    height: 56px;
+    transform-origin: 50% 50%;
+    transition: transform 0.35s cubic-bezier(0.33, 0.12, 0.25, 1);
+    overflow: visible;
+}
+
+/* Контейнер пула выносок над canvas карты.
+   Позиция = 100% .earth-view-container, дочерние карточки позиционируются абсолютно. */
+.map-callouts {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 26;
+}
+
+/* Линии выносок в SVG — поверх canvas и DOM-маркеров (z-index 25), под карточками. */
+.map-callout-lines {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.map-sat-callout {
+    position: absolute;
+    z-index: 1;
+    /* Ширина задаётся inline в CalloutRenderer (proc/cardW canvas-а, %),
+       высота согласована с CalloutLayout.opts.cardHeight (logical px).
+       min/max — защитная сетка на случай некорректных значений из layout.
+       Размеры синхронизированы с DEFAULTS callouts.js (110×28 logical px). */
+    min-width: 50px;
+    max-width: 130px;
+    height: 28px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 1px 4px 1px 7px;
+    border-radius: 5px;
+    background: var(--map-callout-bg);
+    border: 1px solid var(--border-color);
+    box-shadow:
+        inset 3px 0 0 var(--callout-accent, var(--sat-label, #ffeb3b)),
+        0 2px 5px rgba(0, 0, 0, 0.25);
+    font-family: var(--font-mono);
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    /* Кликабельные карточки — выбор спутника текущим (selected).
+       Контейнер `.map-callouts` остаётся `pointer-events: none`, чтобы
+       прозрачные участки между карточками пропускали события на canvas. */
+    pointer-events: auto;
+    cursor: pointer;
+    will-change: left, top, transform;
+    /* Карточки следуют маркерам без отставания от SSE. */
+    transform-origin: left center;
+    transition:
+        transform 0.18s ease,
+        filter 0.15s ease,
+        border-color 0.15s ease;
+}
+
+.map-sat-callout:hover {
+    /* Подсветка кликабельной карточки: рамка цветом КА + лёгкое свечение.
+       Не используем transform: scale, чтобы не «прыгать» при hover поверх
+       --tracked (там уже scale 1.18). */
+    filter: brightness(1.08);
+    border-color: var(--callout-accent, var(--sat-label, #ffeb3b));
+}
+
+.map-sat-callout--accent-right {
+    padding: 1px 7px 1px 4px;
+    box-shadow:
+        inset -3px 0 0 var(--callout-accent, var(--sat-label, #ffeb3b)),
+        0 2px 5px rgba(0, 0, 0, 0.25);
+    transform-origin: right center;
+}
+
+.map-sat-callout--accent-top {
+    padding: 7px 7px 1px 4px;
+    box-shadow:
+        inset 0 3px 0 var(--callout-accent, var(--sat-label, #ffeb3b)),
+        0 2px 5px rgba(0, 0, 0, 0.25);
+    transform-origin: center top;
+}
+
+.map-sat-callout--accent-bottom {
+    padding: 1px 7px 7px 4px;
+    box-shadow:
+        inset 0 -3px 0 var(--callout-accent, var(--sat-label, #ffeb3b)),
+        0 2px 5px rgba(0, 0, 0, 0.25);
+    transform-origin: center bottom;
+}
+
+/* Карточка «главного» КА (selected/tracking): плотнее фон, толще полоска,
+   мягкое свечение цветом КА + увеличение 1.18× для выхода на первый план. */
+.map-sat-callout--tracked {
+    z-index: 2;
+    background: var(--map-callout-bg-tracked, var(--map-callout-bg));
+    transform: scale(1.18);
+    box-shadow:
+        inset 5px 0 0 var(--callout-accent, var(--sat-label, #ffeb3b)),
+        0 0 12px color-mix(in srgb, var(--callout-accent, var(--sat-label, #ffeb3b)) 30%, transparent),
+        0 3px 10px rgba(0, 0, 0, 0.3);
+}
+
+.map-sat-callout--tracked.map-sat-callout--accent-right {
+    box-shadow:
+        inset -5px 0 0 var(--callout-accent, var(--sat-label, #ffeb3b)),
+        0 0 12px color-mix(in srgb, var(--callout-accent, var(--sat-label, #ffeb3b)) 30%, transparent),
+        0 3px 10px rgba(0, 0, 0, 0.3);
+}
+
+.map-sat-callout--tracked.map-sat-callout--accent-top {
+    box-shadow:
+        inset 0 5px 0 var(--callout-accent, var(--sat-label, #ffeb3b)),
+        0 0 12px color-mix(in srgb, var(--callout-accent, var(--sat-label, #ffeb3b)) 30%, transparent),
+        0 3px 10px rgba(0, 0, 0, 0.3);
+}
+
+.map-sat-callout--tracked.map-sat-callout--accent-bottom {
+    box-shadow:
+        inset 0 -5px 0 var(--callout-accent, var(--sat-label, #ffeb3b)),
+        0 0 12px color-mix(in srgb, var(--callout-accent, var(--sat-label, #ffeb3b)) 30%, transparent),
+        0 3px 10px rgba(0, 0, 0, 0.3);
+}
+
+.map-sat-callout__name {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--map-callout-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.map-sat-callout__sub {
+    font-size: 9px;
+    font-weight: 500;
+    color: var(--map-callout-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Карточка без alias — одностроечная: вторая строка скрыта в JS,
+   а вертикальный паддинг компенсируется так, чтобы имя было центрировано
+   в той же 30-px рамке (bend.y совпадает с центром карточки). */
+.map-sat-callout--single-line .map-sat-callout__name {
+    line-height: 1.2;
+}
+
+/* Стековая карточка (co-located КА): авто-высота вместо фиксированной,
+   каждая строка — одно имя КА. Порядок стабильный (NORAD ↑). */
+.map-sat-callout--stacked {
+    height: auto;
+    max-height: none;
+    padding: 3px 4px 3px 7px;
+}
+.map-sat-callout--stacked.map-sat-callout--accent-right {
+    padding: 3px 7px 3px 4px;
+}
+.map-sat-callout--stacked .map-sat-callout__name {
+    font-size: 10px;
+    line-height: 1.4;
+    cursor: pointer;
+}
+.map-sat-callout--stacked .map-sat-callout__name:hover {
+    color: #fff;
+    background: rgba(255,255,255,0.08);
+}
+.map-sat-callout__stack-row {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--map-callout-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.map-sat-callout__stack-row:hover {
+    color: #fff;
+    background: rgba(255,255,255,0.08);
+}
+.map-sat-callout__stack-more {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    line-height: 1.4;
+    color: rgba(255,255,255,0.5);
+    cursor: pointer;
+    white-space: nowrap;
+    margin-top: 1px;
+}
+.map-sat-callout__stack-more:hover {
+    color: rgba(255,255,255,0.85);
 }
 
 /* Отображаемый размер = 100% контейнера; буфер для HiDPI задаётся в JS */
@@ -308,21 +1043,215 @@ body {
     display: block;
 }
 
-/* satellite-info-panel удалён — заменён на .info-panel (info-panel.css) */
+/* ─── Правая панель: вся высота окна (строка 1+2), рядом с картой и нижней панелью ─── */
+.right-panel {
+    grid-column: 2;
+    grid-row: 1 / -1; /* Вся высота: header + карта + нижняя панель */
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    min-height: 0;
+    overflow: hidden;
+}
 
-/* Мигающая надпись "ИМИТАЦИЯ" в правом нижнем углу */
+.right-panel__body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    padding: 4px;
+}
+
+/* ─── Нижняя панель: полоска вкладок слева + тело на оставшуюся ширину ─── */
+.bottom-panel {
+    grid-column: 1;
+    grid-row: 3; /* После header (1) и карты (2) */
+    position: relative;
+    width: 100%;
+    margin-left: 0;
+    padding: 0 4px 0 0;
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    min-height: 0;
+}
+
+/* Боковая полоска вкладок РТН */
+.bottom-panel__side {
+    position: relative;
+    flex-shrink: 0;
+    width: 50px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 8px 4px;
+    background: var(--bg-tertiary);
+    border-right: 1px solid var(--border-color);
+    z-index: 2;
+}
+
+.bottom-panel__layout-btn {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    margin: 4px 0;
+    padding: 0;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm, 4px);
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.bottom-panel__layout-btn:hover {
+    background: var(--bg-hover, rgba(255, 255, 255, 0.06));
+    color: var(--text-primary);
+}
+
+.bottom-panel__side .panel-collapse-btn {
+    color: var(--panel-header-title, var(--text-muted));
+    margin-top: auto;
+    flex-shrink: 0;
+}
+
+/* Подпись режима / вкладки в боковой полоске — столбиком (по одной букве). */
+.bottom-panel__mode {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--panel-header-title, var(--text-secondary));
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    min-height: 0;
+    user-select: none;
+}
+
+.bottom-panel__mode span {
+    display: block;
+    line-height: 1.25;
+}
+
+/* ─── Общий заголовок панелей ─── */
+/* Сетка: пустая 1fr | заголовок по центру панели | кнопка справа (1fr = зеркало для визуального центра) */
+.panel-header {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    column-gap: 8px;
+    height: 44px;
+    padding: 0 10px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.panel-header__title {
+    grid-column: 2;
+    justify-self: center;
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--panel-header-title, #c0c8d4);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    text-align: center;
+}
+
+.panel-collapse-btn {
+    background: none;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    cursor: pointer;
+    box-sizing: border-box;
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0;
+    font-size: 14px;
+    line-height: 1;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+
+.panel-header .panel-collapse-btn {
+    grid-column: 3;
+    justify-self: end;
+}
+
+.panel-collapse-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+}
+
+/* Тело нижней панели — контейнер вкладок, занимает всю ширину и оставшуюся высоту */
+.bottom-panel__body {
+    flex: 1;
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    min-height: 120px;
+    overflow: hidden;
+    padding-left: 4px;
+}
+
+/* При сворачивании — скрываем тело; слева узкая полоска с кнопкой ▲ внизу */
+.bottom-panel--collapsed .bottom-panel__body {
+    display: none;
+}
+
+.bottom-panel--collapsed .bottom-panel__side {
+    justify-content: flex-end;
+    padding: 2px 4px 3px;
+    cursor: pointer;
+}
+
+.bottom-panel--collapsed .bottom-panel__layout-btn {
+    display: none;
+}
+
+.bottom-panel--collapsed .bottom-panel__side .panel-collapse-btn {
+    margin-top: 0;
+}
+
+.bottom-panel--collapsed .bottom-panel__mode {
+    display: none;
+}
+
+/* Мигающая надпись "ИМИТАЦИЯ" в правом нижнем углу карты */
 .simulation-badge {
     position: absolute;
     bottom: 12px;
     right: 16px;
     font-size: 24px;
     font-weight: 700;
-    color: #ff6b6b;
+    color: var(--simulation-badge-color, var(--accent-danger, #ff6b6b));
     text-transform: uppercase;
     letter-spacing: 2px;
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
     animation: blink 1.5s ease-in-out infinite;
-    text-shadow: 0 0 8px rgba(255, 107, 107, 0.6);
+    text-shadow: var(--simulation-badge-shadow, 0 0 8px rgba(255, 107, 107, 0.6));
     z-index: 10;
 }
 
@@ -336,56 +1265,6 @@ body {
         transform: scale(0.95);
     }
 }
-
-/* Правая колонка: графики вертикально */
-.charts-column {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-height: 0;
-    overflow: hidden;
-}
-
-.azimuth-container,
-.sky-view-container,
-.elevation-container {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    padding: 4px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    min-height: 0;
-    overflow: hidden;
-}
-
-/* Пропорциональное распределение высоты (300:350:250) */
-.azimuth-container  { flex: 300 1 0; }
-.sky-view-container { flex: 350 1 0; }
-.elevation-container { flex: 280 1 0; }
-
-.charts-column h3 {
-    font-size: 0.7rem;
-    font-weight: 500;
-    color: var(--text-muted);
-    margin-bottom: var(--spacing-xs);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.charts-column canvas {
-    display: block;
-    flex: 1 1 0;
-    min-height: 0;
-    max-width: 100%;
-    background: var(--bg-primary);
-    border-radius: var(--radius-sm);
-}
-
-.azimuth-container canvas  { aspect-ratio: 1 / 1; }
-.sky-view-container canvas { aspect-ratio: 6 / 7; }
-.elevation-container canvas { aspect-ratio: 15 / 14; }
 
 /* Receiver Layout */
 .receiver-layout {
@@ -415,7 +1294,7 @@ body {
 .waterfall-container canvas {
     width: 100%;
     height: auto;
-    background: linear-gradient(to bottom, #000022, #000044);
+    background: var(--waterfall-container-bg, linear-gradient(to bottom, #000022, #000044));
     border-radius: var(--radius-md);
 }
 
@@ -485,23 +1364,29 @@ body {
     font-size: 0.875rem;
 }
 
-.form-group input:focus,
-.form-group select:focus {
+.form-group input:focus-visible,
+.form-group select:focus-visible {
     outline: none;
     border-color: var(--border-focus);
-    box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.1);
+    box-shadow: var(--focus-ring-shadow, 0 0 0 2px rgba(0, 212, 170, 0.1));
 }
 
-/* Buttons */
+/* Buttons — единый блок (DS-STATES-001).
+   Базовый .btn покрывает все варианты: основной, вторичный, опасный.
+   Состояния через :hover/:focus-visible/:active/:disabled с токенами state-layer. */
 .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
     padding: var(--spacing-sm) var(--spacing-lg);
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     color: var(--text-primary);
+    font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.15s ease;
 }
 
 .btn:hover:not(:disabled) {
@@ -509,20 +1394,41 @@ body {
     border-color: var(--text-muted);
 }
 
+.btn:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring-shadow, 0 0 0 2px rgba(0, 212, 170, 0.18));
+}
+
+.btn:active:not(:disabled) {
+    transform: translateY(1px);
+}
+
 .btn:disabled {
-    opacity: 0.5;
+    opacity: var(--state-disabled-opacity, 0.38);
     cursor: not-allowed;
+    pointer-events: none;
 }
 
 .btn-primary {
-    background: var(--accent-primary);
-    border-color: var(--accent-primary);
-    color: var(--bg-primary);
+    background: var(--accent-secondary);
+    border-color: var(--accent-secondary);
+    color: var(--btn-primary-text, #fff);
 }
 
 .btn-primary:hover:not(:disabled) {
-    background: #00eabb;
-    border-color: #00eabb;
+    background: var(--btn-primary-hover-bg, #0090dd);
+    border-color: var(--btn-primary-hover-bg, #0090dd);
+}
+
+.btn-secondary {
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+    color: var(--text-secondary);
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background: var(--border-color);
+    color: var(--text-primary);
 }
 
 .btn-danger {
@@ -667,18 +1573,27 @@ section h2 {
 }
 
 /* Responsive */
+@media (max-width: 1100px) {
+    .main-wrapper.tracking-page {
+        grid-template-columns: 1fr 280px;
+    }
+}
+
 @media (max-width: 800px) {
-    .tracking-layout {
+    .main-wrapper.tracking-page {
         grid-template-columns: 1fr;
-        grid-template-rows: 1fr auto;
+        grid-template-rows: 1fr 200px 200px;
         height: auto;
     }
-    
-    .charts-column {
-        flex-direction: row;
-        flex-wrap: wrap;
-        justify-content: center;
-        overflow-y: visible;
+
+    .right-panel {
+        grid-column: 1;
+        grid-row: 3;
+    }
+
+    .bottom-panel {
+        grid-column: 1;
+        grid-row: 2;
     }
 }
 
@@ -697,17 +1612,6 @@ section h2 {
     
     .simulation-control {
         grid-column: auto;
-    }
-}
-
-@media (max-width: 600px) {
-    /* Скрываем sidebar на очень узких экранах */
-    body {
-        grid-template-columns: 1fr;
-    }
-    
-    .sidebar {
-        display: none;
     }
 }
 
@@ -795,39 +1699,6 @@ section h2 {
     margin-left: auto;
 }
 
-/* Кнопки */
-.btn {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-    padding: var(--spacing-sm) var(--spacing-md);
-    border: none;
-    border-radius: var(--radius-md);
-    font-size: 0.875rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background-color 0.15s, color 0.15s;
-}
-
-.btn-secondary {
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
-}
-
-.btn-secondary:hover {
-    background: var(--border-color);
-    color: var(--text-primary);
-}
-
-.btn-primary {
-    background: var(--accent-secondary);
-    color: #fff;
-}
-
-.btn-primary:hover {
-    background: #0090dd;
-}
-
 /* Контейнер таблицы */
 .passes-table-container {
     flex: 1;
@@ -869,13 +1740,13 @@ section h2 {
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(6, 10, 18, 0.80);
+    background: var(--tracking-overlay-bg, rgba(6, 10, 18, 0.80));
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 50;
     opacity: 1;
-    transition: opacity 0.6s ease-out;
+    transition: opacity 0.25s ease-out;
     pointer-events: none;
     border-radius: var(--radius-md);
 }
@@ -900,7 +1771,7 @@ section h2 {
 .tracking-spinner {
     width: 40px;
     height: 40px;
-    border: 3px solid rgba(0, 255, 200, 0.15);
+    border: 3px solid var(--tracking-spinner-border, rgba(0, 255, 200, 0.15));
     border-top-color: var(--accent-primary, #00ffc8);
     border-radius: 50%;
     animation: spin 0.9s linear infinite;

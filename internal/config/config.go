@@ -1,68 +1,20 @@
 package config
 
-import (
-	"os"
-	"strconv"
-
-	"github.com/art-injener/satellite-scout/internal/tracker"
-)
-
+// Имена runtime-переменных окружения, признанных архитектурой долгосрочно.
+// Все остальные ENV считаются устаревшими и обслуживаются только миграцией
+// (см. migrate.go и Bootstrap).
 const (
-	// Координаты Ростова-на-Дону по умолчанию.
-	defaultObserverLat = 47.315813
-	defaultObserverLon = 39.788243
-	defaultObserverAlt = 70.0
-
-	// Имена переменных окружения.
-	envPort        = "PORT"
-	envObserverLat = "OBSERVER_LAT"
-	envObserverLon = "OBSERVER_LON"
-	envObserverAlt = "OBSERVER_ALT"
+	envConfigPath = "SS_CONFIG"
+	envDevMode    = "DEV_MODE"
 )
 
-// Config содержит конфигурацию приложения.
-type Config struct {
-	// Настройки сервера
-	Port string
-
-	// Местоположение наблюдателя (по умолчанию: Ростов-на-Дону)
-	ObserverLat float64
-	ObserverLon float64
-	ObserverAlt float64 // метры над уровнем моря
-
-	// Настройки TLE (загрузка, кеширование, обновление)
-	TLE *tracker.TLEStoreConfig
-}
-
-// Load возвращает конфигурацию из переменных окружения с значениями по умолчанию.
+// Load — устаревшая точка входа: возвращает Config, собранный исключительно из
+// переменных окружения, без чтения файла. Сохраняется для обратной совместимости
+// с тестами, которые опираются на env-поведение, и для отдельных тулов, где
+// полноценный Bootstrap не нужен. В основном цикле приложения используйте
+// Bootstrap().
 func Load() *Config {
-	cfg := &Config{
-		Port:        getEnv(envPort, "8080"),
-		ObserverLat: getEnvFloat(envObserverLat, defaultObserverLat),
-		ObserverLon: getEnvFloat(envObserverLon, defaultObserverLon),
-		ObserverAlt: getEnvFloat(envObserverAlt, defaultObserverAlt),
-		TLE:         tracker.DefaultTLEStoreConfig(),
-	}
+	cfg := loadFromLegacyEnv()
+	cfg.DevMode = getEnvBool(envDevMode, true)
 	return cfg
-}
-
-// Addr возвращает адрес сервера в формате ":port".
-func (c *Config) Addr() string {
-	return ":" + c.Port
-}
-
-func getEnv(key, defaultVal string) string {
-	if val := os.Getenv(key); val != "" {
-		return val
-	}
-	return defaultVal
-}
-
-func getEnvFloat(key string, defaultVal float64) float64 {
-	if val := os.Getenv(key); val != "" {
-		if f, err := strconv.ParseFloat(val, 64); err == nil {
-			return f
-		}
-	}
-	return defaultVal
 }

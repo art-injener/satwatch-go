@@ -4,6 +4,11 @@ module.exports = {
         browser: true,
         es2022: true
     },
+    globals: {
+        cssVar: 'readonly',
+        themeRgba: 'readonly',
+        getThemeId: 'readonly'
+    },
     parserOptions: {
         ecmaVersion: 2022,
         sourceType: 'script'
@@ -14,9 +19,9 @@ module.exports = {
     rules: {
         'no-var': 'error',
         'prefer-const': 'error',
-        'eqeqeq': ['error', 'always'],
+        'eqeqeq': ['error', 'always', { null: 'ignore' }],
         'curly': 'error',
-        'no-unused-vars': ['error', { args: 'after-used', ignoreRestSiblings: false }],
+        'no-unused-vars': ['error', { args: 'after-used', ignoreRestSiblings: false, argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
         'no-use-before-define': ['error', { functions: false, classes: true, variables: true }],
         'no-redeclare': 'error',
         'no-shadow': 'error',
@@ -48,6 +53,11 @@ module.exports = {
             files: ['**/*.test.js'],
             env: {
                 node: true
+            },
+            rules: {
+                'no-console': 'off',
+                'no-unused-expressions': 'off',
+                'no-use-before-define': ['error', { functions: false, classes: true, variables: false }]
             }
         }
     ]

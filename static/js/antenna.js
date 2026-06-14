@@ -5,13 +5,19 @@
     'use strict';
 
     /**
-     * Цвета для отрисовки
+     * Цвета для отрисовки (обновлять через refreshAntennaColorsFromCss после смены темы)
      */
     const colors = {
-        bgPrimary: '#0a0e14',
-        accent: '#00d4aa',
-        accentRed: '#ff6b6b'
+        bgPrimary: cssVar('--ind-bg', '#0c1420'),
+        accent: cssVar('--ind-antenna', '#22a05a'),
+        accentRed: cssVar('--ind-accent-red', '#d05545')
     };
+
+    function refreshAntennaColorsFromCss() {
+        colors.bgPrimary = cssVar('--ind-bg', '#0c1420');
+        colors.accent = cssVar('--ind-antenna', '#22a05a');
+        colors.accentRed = cssVar('--ind-accent-red', '#d05545');
+    }
 
     /**
      * Отрисовка антенны
@@ -142,6 +148,7 @@
         ctx.stroke();
 
         // === 4. Шестигранник приёмника ===
+        ctx.strokeStyle = colors.accent;
         ctx.beginPath();
         for (let i = 0; i < 6; i++) {
             const hexAngle = (i * 60 + 30) * Math.PI / 180;
@@ -204,7 +211,8 @@
     // Экспорт
     window.AntennaDrawing = {
         draw: drawAntenna,
-        setColors: setColors
+        setColors: setColors,
+        refreshFromCss: refreshAntennaColorsFromCss
     };
 
 })();

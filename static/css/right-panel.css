@@ -1,0 +1,655 @@
+/* ===== Правая панель: план сеансов наблюдения + кнопки ===== */
+
+/* Блок таблицы: внешний контейнер — подложка для overlay-тоста; прокрутка только внутри __scroll */
+.passes-compact {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.passes-compact__scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background: var(--passes-scroll-bg, transparent);
+}
+
+.passes-compact__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    table-layout: fixed;
+    /* Не показывать текстовую каретку и не давать выделять текст как в поле ввода */
+    user-select: none;
+    -webkit-user-select: none;
+    caret-color: transparent;
+}
+
+.passes-compact__table thead {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+.passes-compact__table th {
+    padding: 7px 6px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--panel-header-title, var(--text-primary));
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    background: var(--bg-tertiary);
+    border: none;
+    box-shadow: inset -1px 0 0 var(--border-color), inset 0 -1px 0 var(--border-color);
+    text-align: center;
+    white-space: nowrap;
+}
+
+.passes-compact__table th:last-child {
+    box-shadow: inset 0 -1px 0 var(--border-color);
+}
+
+/* Колонки: глаз (28px) | NORAD/имя (auto) | Азим./Угол (68px) | ЗРВ (68px) | Пакеты (56px) */
+.pc-th-track {
+    width: 28px;
+    text-align: center;
+    cursor: pointer;
+    user-select: none;
+    vertical-align: middle;
+}
+
+.pc-th-track-toggle-inner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 22px;
+}
+.pc-th-sat {
+    white-space: normal;
+    text-align: center;
+    vertical-align: middle;
+    line-height: 1.2;
+}
+
+/* Две строки: NORAD ID сверху, имя КА снизу (в ячейке: NORAD → имя → при alias строка в скобках) */
+.pc-th-sat__stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    font-size: 13px;
+    line-height: 1.2;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 600;
+    color: inherit;
+}
+
+.pc-th-sat__line {
+    display: block;
+    white-space: nowrap;
+}
+
+/* Колонка Азим. / Угол м. — фиксированная ширина */
+.pc-th-azel {
+    width: 68px;
+    white-space: normal;
+    text-align: center;
+    vertical-align: middle;
+    line-height: 1.2;
+}
+
+.pc-th-azel__stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    font-size: 13px;
+    line-height: 1.2;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 600;
+    color: inherit;
+}
+
+.pc-th-azel__line {
+    display: block;
+    white-space: nowrap;
+}
+
+/* Колонка До AOS / До LOS — фиксированная ширина */
+.pc-th-countdown {
+    width: 68px;
+    white-space: normal;
+    text-align: center;
+    vertical-align: middle;
+    line-height: 1.2;
+}
+
+/* Колонка «max El / Выс.» — TCA и средняя высота орбиты по TLE */
+.passes-compact__table th.pc-th-orbit {
+    width: 52px;
+    white-space: normal;
+    text-align: center;
+    vertical-align: middle;
+    line-height: 1.2;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 13px;
+}
+
+.pc-th-orbit__stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    font-size: 13px;
+    line-height: 1.2;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 600;
+}
+
+.pc-th-orbit__line {
+    display: block;
+    white-space: nowrap;
+}
+
+/* Две строки заголовка: «До AOS» сверху, «До LOS» снизу */
+.pc-th-countdown__stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    font-size: 13px;
+    line-height: 1.2;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 600;
+    color: inherit;
+}
+
+.pc-th-countdown__line {
+    display: block;
+    white-space: nowrap;
+}
+
+/* Ячейка «глаз» — видимость трассы */
+.pc-track-cell {
+    text-align: center;
+    cursor: pointer;
+    width: 30px;
+    padding: 2px 2px !important;
+    user-select: none;
+    vertical-align: middle;
+}
+
+.pc-track-cell:hover .pc-track-eye-svg-wrap,
+.pc-th-track:hover .pc-track-eye-svg-wrap {
+    filter: brightness(1.12);
+}
+
+/* Обёртка SVG: цвет обводки = currentColor */
+.pc-track-eye-svg-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto;
+    pointer-events: none;
+    line-height: 0;
+}
+
+.pc-track-eye-svg {
+    display: block;
+    vertical-align: middle;
+}
+
+/* Трасса видна — цвет задаётся inline из палитры (svg stroke/fill). Заголовок — акцентный. */
+.pc-th-track--on .pc-track-eye-svg-wrap {
+    color: var(--accent-primary);
+}
+
+/* Трасса скрыта — приглушённый глаз с диагональю «выкл.» */
+.pc-track-cell--off .pc-track-eye-svg-wrap,
+.pc-th-track--off .pc-track-eye-svg-wrap {
+    color: var(--passes-eye-muted, rgba(230, 232, 235, 0.42));
+}
+
+.passes-compact__table td {
+    padding: 4px 6px;
+    color: var(--text-primary);
+    text-align: center;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-color);
+}
+
+.passes-compact__table td:last-child {
+    border-right: none;
+}
+
+.passes-compact__table td:first-child {
+    border-right: 1px solid var(--border-color);
+    vertical-align: middle;
+}
+
+/* Строка: без указателя-«руки» (кроме ячейки глаза — см. .pc-track-cell) */
+.passes-compact__table tbody tr.pc-row {
+    cursor: default;
+    transition: background 0.1s ease;
+    height: auto;
+    min-height: 38px;
+    background: var(--passes-row-bg, transparent);
+}
+
+.passes-compact__table tbody tr.pc-row:hover {
+    background: var(--bg-tertiary);
+}
+
+/* Связка с нижней панелью Авто (hover из auto-link или Плана) */
+.passes-compact__table tbody tr.pc-row--link-hover {
+    background: var(--passes-row-link-hover-bg, rgba(100, 180, 255, 0.14)) !important;
+    outline: 1px solid var(--passes-row-link-hover-border, rgba(100, 180, 255, 0.45));
+    outline-offset: -1px;
+}
+
+/* Выбранный (selected) — цвет из темы (светлая: синяя подсветка) */
+.passes-compact__table tbody tr.pc-row--selected {
+    background: var(--passes-row-selected-bg, rgba(255, 215, 0, 0.2)) !important;
+    border-left: 3px solid var(--passes-row-selected-border, #d4a800);
+}
+
+.passes-compact__table tbody tr.pc-row--selected td:first-child {
+    padding-left: 3px;
+}
+
+/* Под наблюдением (tracking) */
+.passes-compact__table tbody tr.pc-row--tracking {
+    background: var(--passes-row-tracking-bg, rgba(255, 68, 68, 0.1)) !important;
+    border-left: 3px solid var(--passes-row-tracking-border, #ff4444);
+}
+
+.passes-compact__table tbody tr.pc-row--tracking td:first-child {
+    padding-left: 3px;
+}
+
+/* selected + tracking — приоритет стиля наблюдения */
+.passes-compact__table tbody tr.pc-row--selected.pc-row--tracking {
+    background: var(--passes-row-tracking-bg, rgba(255, 68, 68, 0.16)) !important;
+    border-left: 3px solid var(--passes-row-tracking-border, #ff4444);
+}
+
+/* ===== Двухстрочные ячейки ===== */
+
+/* NORAD / Имя КА: шапка по центру; ячейки — влево (специфичность выше, чем у .passes-compact__table td) */
+.passes-compact__table td.pc-name-cell {
+    overflow: hidden;
+    vertical-align: middle;
+    text-align: left;
+}
+
+.pc-name-cell--alias .pc-sat-name,
+.pc-name-cell--alias .pc-sat-alias,
+.pc-name-cell--alias .pc-sat-norad {
+    line-height: 1.35;
+}
+
+.pc-sat-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.4;
+    max-width: 100%;
+}
+
+/* Третья строка только если есть sat_alias */
+.pc-sat-alias {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.3;
+    opacity: 0.92;
+}
+
+/* Третья строка ячейки — NORAD (мелкий, приглушённый) */
+.pc-sat-norad {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--text-muted);
+    white-space: nowrap;
+    line-height: 1.3;
+    font-variant-numeric: tabular-nums;
+}
+
+.pc-row--active .pc-sat-name {
+    color: var(--accent-primary);
+}
+
+.pc-row--active .pc-sat-alias,
+.pc-row--active .pc-sat-norad {
+    color: var(--accent-primary);
+    opacity: 0.7;
+}
+
+/* Колонка 2: Азим. / Угол м. (живые данные, тикают каждую секунду) */
+.pc-azel-cell {
+    font-variant-numeric: tabular-nums;
+}
+
+.pc-azel-az {
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+.pc-azel-el {
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+/* Колонка «max El / Выс.»: TCA и средняя высота орбиты по TLE. */
+.pc-orbit-cell {
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    vertical-align: middle;
+    padding: 4px 4px !important;
+    line-height: 1.3;
+}
+
+.pc-orbit-el,
+.pc-orbit-alt {
+    font-size: 12px;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+.pc-orbit-alt {
+    color: var(--text-muted);
+}
+
+/* Колонка 3: верх — до AOS / «ЗРВ»; низ — длит. пролёта до AOS или остаток до LOS (см. right-panel.js) */
+.pc-col3-cell {
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    padding: 4px 6px !important;
+    line-height: 1.3;
+}
+
+.pc-col3-dur,
+.pc-col3-until {
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.pc-col3-dur {
+    color: var(--text-primary);
+}
+
+.pc-col3-until {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.pc-col3-label--aos {
+    color: var(--color-aos, #00cc00);
+}
+
+.pc-col3-label--los {
+    color: var(--color-los, #d94848);
+}
+
+.pc-col3-dur:empty { min-height: 1em; }
+
+/* Пустое состояние */
+.pc-empty {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 11px;
+    padding: 12px 8px;
+}
+
+/* ===== Кнопки управления (привязаны к ширине панели/таблицы) ===== */
+.right-panel__controls {
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+    flex-shrink: 0;
+    width: 100%;
+    box-sizing: border-box;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.rp-ctrl {
+    flex: 1;
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    padding: 10px 12px;
+    min-height: 44px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.12s ease;
+    line-height: 1.15;
+}
+
+.rp-ctrl:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring-shadow, 0 0 0 2px rgba(0, 212, 170, 0.18));
+    border-color: var(--border-focus);
+}
+
+.rp-ctrl__label {
+    letter-spacing: 0.02em;
+}
+
+.rp-ctrl:hover:not(:disabled) {
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+}
+
+/* Не «терять» подпись: раньше 0.35 — почти сливалось с фоном */
+.rp-ctrl:disabled {
+    opacity: 0.52;
+    cursor: not-allowed;
+}
+
+/* Кнопка «Сопровождать» — подпись длиннее «Сброс»; размер шрифта см. ниже */
+.rp-ctrl--track {
+    font-size: 12px;
+    padding: 10px 6px;
+    letter-spacing: 0.01em;
+}
+
+.rp-ctrl--track:not(:disabled):hover {
+    color: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+
+/* Кнопка Сброс */
+.rp-ctrl--reset:not(:disabled):hover {
+    color: var(--accent-danger);
+    border-color: var(--accent-danger);
+}
+
+/* ===== SkyView: расширенный блок по ширине; центровка по правой панели ===== */
+.right-panel__skyview {
+    width: var(--skyview-block-width);
+    height: var(--indicator-block-height);
+    flex-shrink: 0;
+    align-self: center;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    margin-top: 4px;
+}
+
+/* Окно отрисовки — квадрат 300×300, не растягивать по ширине блока, центрировать */
+.right-panel__skyview-canvas {
+    width: var(--indicator-graph-size);
+    height: var(--indicator-graph-size);
+    flex-shrink: 0;
+    flex-grow: 0;
+    align-self: center;
+}
+
+.right-panel__skyview-canvas canvas {
+    display: block;
+    width: var(--indicator-graph-size);
+    height: var(--indicator-graph-size);
+    background: var(--bg-primary);
+}
+
+/* Специфика SkyView: как в исходной схеме (коммит до правок UX), см. right-panel в репозитории */
+.skyview-info {
+    width: 100%;
+    flex-shrink: 0;
+    background: var(--bg-tertiary);
+    border-top: 1px solid var(--border-color);
+    /* Если строка шире блока 320px — прокрутка, без уменьшения шрифта из main.css */
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+/* Вся строка в одну линию: AOS | LOS | Ост. */
+.skyview-info__row {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0 16px;
+    width: 100%;
+    height: 100%;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.skyview-info__group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.skyview-info__group .skyview-info__value {
+    min-width: 0;
+}
+
+/* Шрифт подписей (AOS, LOS, Длит.) — размер наследуется от .skyview-info в main.css (12px) */
+.skyview-info__label {
+    font-family: var(--font-mono);
+}
+
+.skyview-info__label--aos {
+    color: var(--color-aos, #00cc00);
+}
+
+.skyview-info__label--los {
+    color: var(--color-los, #d94848);
+}
+
+.skyview-info__label--dur,
+.skyview-info__label--rem {
+    color: var(--text-muted); /* подпись Длит., Осталось */
+}
+
+.skyview-info__value {
+    font-variant-numeric: tabular-nums;
+    color: var(--sky-info-value, #00a8ff);
+}
+
+/* ── Тост: лимит трасс — overlay внизу области таблицы (не в потоке, без прокрутки страницы) ── */
+.pc-limit-toast {
+    position: absolute;
+    bottom: 0.4rem;
+    left: 0.35rem;
+    right: 0.35rem;
+    z-index: 10;
+    box-sizing: border-box;
+    padding: 0.65rem 0.5rem;
+    background: var(--pc-limit-toast-bg, rgba(18, 28, 42, 0.96));
+    border: 1px solid var(--pc-limit-toast-border, #006666);
+    border-radius: 6px;
+    box-shadow: var(--pc-limit-toast-shadow, 0 6px 22px rgba(0, 0, 0, 0.5));
+    font-family: var(--font-sans, system-ui, sans-serif);
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--pc-limit-toast-text, #e6e8eb);
+    pointer-events: none;
+    animation: pc-limit-toast-in 0.22s ease-out;
+}
+
+@keyframes pc-limit-toast-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.pc-limit-toast__text {
+    margin: 0;
+}
+
+/* Контекст-меню строки таблицы (ПКМ «Скрыть спутник»). */
+.pc-context-menu {
+    position: fixed;
+    z-index: 1000;
+    min-width: 160px;
+    padding: 0.25rem;
+    background: var(--pc-limit-toast-bg, rgba(18, 28, 42, 0.98));
+    border: 1px solid var(--pc-limit-toast-border, #006666);
+    border-radius: 6px;
+    box-shadow: var(--pc-limit-toast-shadow, 0 6px 22px rgba(0, 0, 0, 0.5));
+    font-family: var(--font-sans, system-ui, sans-serif);
+    font-size: 12px;
+}
+
+.pc-context-menu__item {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.4rem 0.55rem;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--pc-limit-toast-text, #e6e8eb);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.pc-context-menu__item:hover,
+.pc-context-menu__item:focus {
+    background: var(--pc-limit-toast-border, #006666);
+    outline: none;
+}

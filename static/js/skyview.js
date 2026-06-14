@@ -4,6 +4,13 @@
 (function() {
     'use strict';
 
+    /** Обрезка имени спутника для canvas-подписей (макс. 16 символов). */
+    function _shortName(name, maxLen) {
+        if (!name) { return ''; }
+        maxLen = maxLen || 16;
+        return name.length > maxLen ? name.slice(0, maxLen - 1) + '\u2026' : name;
+    }
+
     /**
      * Класс Sky View - азимутальная проекция неба
      *
@@ -36,61 +43,12 @@
             animationSpeed: 1 // Скорость анимации
         }, options || {});
 
-        /**
-         * Цветовая схема (тёмная тема)
-         * Все цвета легко настраиваются для интеграции
-         */
-        this.colors = {
-            // Фон
-            background: '#0a0e14',
-            skyFill: '#1a2a3a',
-
-            // Сетка
-            grid: '#006666',
-            gridText: '#008080',
-
-            // Метки углов возвышения
-            elevationLabel: '#ffffff', // Белый цвет для контраста
-            elevationLabelOffsetX: -5, // Смещение влево от центра
-            elevationLabelOffsetY: -5, // Смещение вверх
-            elevationLabelSize: 8, // Размер шрифта
-
-            // Метки азимута на внешней окружности
-            azimuthLabel: '#00cccc', // Бирюзовый цвет для азимутальных меток
-
-            // Траектория
-            track: '#00cc00',
-            trackArrow: '#88ff88', // Цвет стрелок направления
-
-            // Маркеры AOS/LOS
-            aosMarker: '#00ff00', // Зелёный - начало видимости
-            losMarker: '#ff4444', // Красный - конец видимости
-            markerBorder: '#ffffff',
-
-            // Спутник
-            satellite: '#00ffff',
-            satelliteGlow: 'rgba(0, 255, 255, 0.3)',
-            satelliteSignal: 'rgba(0, 255, 200, 0.5)',
-            satLabel: '#ffffff',
-
-            // Аура вокруг спутника (бледно-красная, тёмная заливка)
-            satelliteAura: 'rgba(197, 88, 88, 1)',
-            satelliteAuraBorder: '#ff8888',
-
-            // Наблюдатель (центр)
-            observer: '#ffaa00',
-            observerSecondary: '#ff6600',
-
-            // Информационный блок
-            infoText: '#00d4aa',
-            infoLabel: '#ffffff', // Белый для надписей (было #888888)
-            timeText: '#00a8ff'
-        };
+        this._reloadColorsFromCss();
 
         // Расчёт геометрии
         this._updateGeometry();
 
-        // Данные спутника
+        // Спутник под наблюдением (tracking) — текущий стиль (зелёный + аура).
         this.satellite = {
             name: '',
             noradId: null,
@@ -98,12 +56,30 @@
             currentPos: null
         };
 
-        // Данные о пролёте (времена)
-        this.passInfo = {
-            aosTime: null, // Время начала наблюдения (timestamp)
-            losTime: null, // Время окончания наблюдения (timestamp)
-            maxElTime: null // Время максимального угла места
+        // Выбранный спутник (selected) — оранжевый трек + маркер.
+        this._selectedSatellite = {
+            name: '',
+            noradId: null,
+            track: [],
+            currentPos: null
         };
+
+        // Вторичные спутники группы: noradId → {noradId, name, track, currentPos, isVisible}
+        this._secondarySatellites = {};
+
+        // Данные о пролёте (времена и позиции маркеров для синхронизации надписей)
+        this.passInfo = {
+            aosTime: null,
+            losTime: null,
+            maxElTime: null,
+            aosCanvasY: null, // Y маркера AOS на canvas (верхняя/нижняя полусфера)
+            losCanvasY: null,
+            aosAz: null, // азимут AOS (для сортировки при одной полусфере)
+            losAz: null
+        };
+
+        // Данные пролёта для текущего (выбранного) спутника — для инфопанели при отображении выбранного
+        this._selectedPassInfo = { aosTime: null, losTime: null };
 
         // Observer
         this.observer = {
@@ -115,21 +91,28 @@
         // Анимация
         this._animationPhase = 0;
         this._lastAnimTime = 0;
+
+        // Опциональные DOM-элементы для текстового блока под графиком (обновляются при setSatelliteInfo/setPassTimes и раз в секунду для «Осталось»)
+        this._infoEls = { norad: null, aos: null, los: null, dur: null, remaining: null };
+
+        /** Смещение клиентских часов относительно серверных (мс), для корректного «Осталось». */
+        this._serverSkewMs = 0;
     }
 
     /**
-     * Обновление геометрии при изменении размера
-     * Учитывает дополнительное пространство снизу для информационной панели
+     * Обновление геометрии: окружность ВСЕГДА занимает квадратную область с минимальными полями
+     * (только под метки сторон света N/S/E/W и цифры азимута)
      */
     SkyView.prototype._updateGeometry = function() {
-        const padding = 30; // Отступ для меток азимута
-        const infoPanelHeight = 55; // Высота информационной панели снизу (увеличена с 50px)
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        // Минимальный отступ — только для вывода символов сторон света и меток азимута
+        const padding = 16;
 
-        this.infoPanelHeight = infoPanelHeight;
-        this.centerX = this.canvas.width / 2;
-        // Смещаем центр вверх, чтобы освободить место для инфо-панели
-        this.centerY = (this.canvas.height - infoPanelHeight) / 2;
-        this.radius = Math.min(this.centerX, this.centerY) - padding;
+        this.centerX = w / 2;
+        this.centerY = h / 2;
+        this.radius = Math.min(w, h) / 2 - padding;
+        if (this.radius < 20) { this.radius = 20; }
     };
 
     /**
@@ -188,7 +171,7 @@
 
         // Концентрические круги (каждые 30° elevation)
         ctx.strokeStyle = this.colors.grid;
-        ctx.lineWidth = 1;
+        ctx.lineWidth = this._skyGridLineW;
 
         for (let el = 30; el <= 60; el += 30) {
             const ro = 1 - (el / 90);
@@ -205,12 +188,12 @@
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
         ctx.strokeStyle = this.colors.grid;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = this._skyGridOuterW;
         ctx.stroke();
 
         // Линии N-S и E-W
         ctx.strokeStyle = this.colors.grid;
-        ctx.lineWidth = 1;
+        ctx.lineWidth = this._skyGridLineW;
 
         // N-S (вертикальная)
         ctx.beginPath();
@@ -244,13 +227,13 @@
             ctx.setLineDash([]);
         }
 
-        // Метки сторон света
-        ctx.font = 'bold 12px sans-serif';
-        ctx.fillStyle = this.colors.gridText;
+        // Метки сторон света — приглушённый белый
+        ctx.font = '15px sans-serif';
+        ctx.fillStyle = this.colors.cardinalLabel;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
-        const labelOffset = r + 16;
+        const labelOffset = r + 10; // Снаружи окружности
         ctx.fillText('N', cx, cy - labelOffset);
         ctx.fillText('S', cx, cy + labelOffset);
         ctx.fillText('E', cx + labelOffset, cy);
@@ -264,7 +247,7 @@
     };
 
     /**
-     * Отрисовка меток азимута по внешней окружности
+     * Отрисовка меток азимута по внешней окружности: засечки от окружности, подписи чуть дальше
      */
     SkyView.prototype._drawAzimuthLabels = function() {
         const ctx = this.ctx;
@@ -272,22 +255,32 @@
         const cy = this.centerY;
         const r = this.radius;
         const step = this.options.azimuthStep;
+        const tickLen = 5; // длина засечки от окружности
+        const labelOffset = 14; // отступ подписи от окружности (было 8)
 
-        ctx.font = '9px sans-serif';
+        ctx.font = '12px sans-serif';
         ctx.fillStyle = this.colors.azimuthLabel;
 
-        // Рисуем метки кроме основных направлений (N, E, S, W)
         for (let az = step; az < 360; az += step) {
-            // Пропускаем основные направления
-            if (az === 90 || az === 180 || az === 270) {continue;}
+            if (az === 90 || az === 180 || az === 270) { continue; }
 
             const azRad = az * Math.PI / 180;
             const phi = Math.PI / 2 - azRad;
+            const cosP = Math.cos(phi);
+            const sinP = Math.sin(phi);
 
-            // Позиция метки чуть за пределами круга
-            const labelR = r + 8;
-            const x = cx + labelR * Math.cos(phi);
-            const y = cy - labelR * Math.sin(phi);
+            // Засечка: от окружности наружу
+            ctx.strokeStyle = this.colors.azimuthLabel;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(cx + r * cosP, cy - r * sinP);
+            ctx.lineTo(cx + (r + tickLen) * cosP, cy - (r + tickLen) * sinP);
+            ctx.stroke();
+
+            // Подпись градусов чуть дальше от окружности
+            const labelR = r + labelOffset;
+            const x = cx + labelR * cosP;
+            const y = cy - labelR * sinP;
 
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -323,172 +316,241 @@
     };
 
     /**
-     * Отрисовка иконки наблюдателя в центре (зенит)
-     * Простой маленький треугольник
+     * Отрисовка иконки наблюдателя в центре (зенит).
+     * Значок наземной станции: мачта-вышка вниз от точки + излучатель
+     * в центре + две статичные дуги радиоволн симметрично по бокам.
      */
     SkyView.prototype._drawObserver = function() {
         if (!this.options.showObserver) {return;}
 
         const ctx = this.ctx;
         const cx = this.centerX;
-        const cy = this.centerY;
+        const dpr = window.devicePixelRatio || 1;
 
-        // Размеры треугольника
-        const size = 8;
+        // Геометрия значка
+        const mastH = 14 * dpr; // высота мачты вниз от излучателя
+        // Сдвигаем излучатель вверх, чтобы визуальный центр значка был в centerY
+        const cy = this.centerY - mastH * 0.35;
+        const mastHalf = 6 * dpr; // полуширина основания мачты
+        const crossY = cy + mastH * 0.55; // уровень поперечины
+        const crossHalf = mastHalf * 0.55;
+        const waveR1 = 7 * dpr; // радиус ближней дуги волн
+        const waveR2 = 11 * dpr; // радиус дальней дуги волн
+        const waveSpread = Math.PI / 4; // ±45° раствор дуг от горизонтали
+        const emitterR = 2 * dpr; // радиус излучателя
 
-        // Треугольник (вершиной вверх)
-        ctx.fillStyle = this.colors.observer;
-        ctx.strokeStyle = this.colors.observer;
-        ctx.lineWidth = 1;
+        const iconColor = this.colors.observer || '#ffaa00';
+        const haloColor = this.colors.canvasTextStroke || 'rgba(0,0,0,0.9)';
+
+        // Контуры мачты и волн одним path — рисуем дважды: тёмный ореол,
+        // затем основной цвет поверх (читаемость на любом фоне неба).
+        const tracePaths = function() {
+            ctx.beginPath();
+            // Мачта: две ноги от вершины (центр) к основанию
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(cx - mastHalf, cy + mastH);
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(cx + mastHalf, cy + mastH);
+            // Основание мачты
+            ctx.moveTo(cx - mastHalf, cy + mastH);
+            ctx.lineTo(cx + mastHalf, cy + mastH);
+            // Поперечина
+            ctx.moveTo(cx - crossHalf, crossY);
+            ctx.lineTo(cx + crossHalf, crossY);
+            // Левые дуги радиоволн (выпуклостью влево)
+            ctx.moveTo(cx - waveR1, cy);
+            ctx.arc(cx, cy, waveR1, Math.PI - waveSpread, Math.PI + waveSpread);
+            ctx.moveTo(cx - waveR2, cy);
+            ctx.arc(cx, cy, waveR2, Math.PI - waveSpread, Math.PI + waveSpread);
+            // Правые дуги радиоволн (выпуклостью вправо)
+            ctx.moveTo(cx + waveR1 * Math.cos(waveSpread), cy - waveR1 * Math.sin(waveSpread));
+            ctx.arc(cx, cy, waveR1, -waveSpread, waveSpread);
+            ctx.moveTo(cx + waveR2 * Math.cos(waveSpread), cy - waveR2 * Math.sin(waveSpread));
+            ctx.arc(cx, cy, waveR2, -waveSpread, waveSpread);
+        };
+
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        // Тёмный ореол
+        tracePaths();
+        ctx.strokeStyle = haloColor;
+        ctx.lineWidth = 2.5 * dpr;
+        ctx.stroke();
+
+        // Основной цвет
+        tracePaths();
+        ctx.strokeStyle = iconColor;
+        ctx.lineWidth = 1.4 * dpr;
+        ctx.stroke();
+
+        // Излучатель в центре (зенит)
         ctx.beginPath();
-        ctx.moveTo(cx, cy - size); // Вершина
-        ctx.lineTo(cx - size, cy + size); // Левый нижний угол
-        ctx.lineTo(cx + size, cy + size); // Правый нижний угол
-        ctx.closePath();
+        ctx.arc(cx, cy, emitterR, 0, Math.PI * 2);
+        ctx.fillStyle = iconColor;
+        ctx.strokeStyle = haloColor;
+        ctx.lineWidth = Number(dpr);
         ctx.fill();
         ctx.stroke();
     };
 
     /**
-     * Отрисовка стрелки направления на траектории
+     * Отрисовка стрелки направления на траектории.
      * @param {number} x - X координата
      * @param {number} y - Y координата
      * @param {number} angle - Угол направления в радианах
+     * @param {string} [fillColor] - цвет заливки (если не задан — trackArrow)
      */
-    SkyView.prototype._drawArrow = function(x, y, angle) {
+    SkyView.prototype._drawArrow = function(x, y, angle, fillColor) {
         const ctx = this.ctx;
-        const size = 6;
+        const size = 9;
 
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate(angle);
 
-        ctx.fillStyle = this.colors.trackArrow;
         ctx.beginPath();
         ctx.moveTo(size, 0);
         ctx.lineTo(-size * 0.5, -size * 0.5);
         ctx.lineTo(-size * 0.3, 0);
         ctx.lineTo(-size * 0.5, size * 0.5);
         ctx.closePath();
+        ctx.fillStyle = fillColor || this.colors.trackArrow;
         ctx.fill();
+        ctx.strokeStyle = this.colors.arrowOutline;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
 
         ctx.restore();
     };
 
     /**
      * Отрисовка траектории пролёта
-     * Траектория — плавная кривая от внешней окружности до внешней окружности
+     * Линия продлевается до окружности горизонта (el=0) для совпадения с маркерами AOS/LOS
      */
     SkyView.prototype._drawTrack = function() {
         const ctx = this.ctx;
         const track = this.satellite.track;
 
         if (!track || track.length < 2) {
+            this.passInfo.aosCanvasY = null;
+            this.passInfo.losCanvasY = null;
+            this.passInfo.aosAz = null;
+            this.passInfo.losAz = null;
             return;
         }
 
-        // Фильтруем видимые точки (el >= 0, включая горизонт)
         const visibleTrack = track.filter(function(p) { return p.el >= 0; });
         if (visibleTrack.length < 2) {
+            this.passInfo.aosCanvasY = null;
+            this.passInfo.losCanvasY = null;
+            this.passInfo.aosAz = null;
+            this.passInfo.losAz = null;
             return;
         }
 
-        // Сохраняем времена пролёта
-        this.passInfo.aosTime = visibleTrack[0].time;
-        this.passInfo.losTime = visibleTrack[visibleTrack.length - 1].time;
+        // AOS/LOS берутся из setPassTimes() — точные значения с бэкенда;
+        // здесь НЕ перезаписываем, чтобы «Осталось» совпадало с таблицей.
 
-        // Преобразуем все точки в координаты canvas
-        const points = [];
+        // Азимуты пересечения с горизонтом (el=0) для AOS и LOS
+        const startAz = this._findHorizonCrossing(visibleTrack[0], visibleTrack[1]);
+        const endAz = this._findHorizonCrossing(
+            visibleTrack[visibleTrack.length - 1],
+            visibleTrack[visibleTrack.length - 2]
+        );
+
+        const aosEdge = this.azElToXY(startAz, 0);
+        const losEdge = this.azElToXY(endAz, 0);
+
+        // Внутренние точки (видимая часть трека) — для стрелок
+        const innerPoints = [];
         for (let i = 0; i < visibleTrack.length; i++) {
-            const trackPoint = visibleTrack[i];
-            const p = this.azElToXY(trackPoint.az, trackPoint.el);
-            points.push({
-                x: p.x,
-                y: p.y,
-                time: trackPoint.time,
-                el: trackPoint.el,
-                az: trackPoint.az
-            });
+            const tp = visibleTrack[i];
+            const p = this.azElToXY(tp.az, tp.el);
+            innerPoints.push({ x: p.x, y: p.y, time: tp.time, el: tp.el, az: tp.az });
         }
 
-        // Рисуем линию траектории
+        // Полный путь: от края окружности (AOS) через видимые точки до края (LOS)
+        const allPoints = [
+            { x: aosEdge.x, y: aosEdge.y, time: visibleTrack[0].time, el: 0, az: startAz }
+        ].concat(innerPoints).concat([
+            { x: losEdge.x, y: losEdge.y, time: visibleTrack[visibleTrack.length - 1].time, el: 0, az: endAz }
+        ]);
+
+        // Рисуем линию через все точки (от края до края окружности)
         ctx.strokeStyle = this.colors.track;
         ctx.lineWidth = 2;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.beginPath();
 
-        for (let i = 0; i < points.length; i++) {
+        for (let i = 0; i < allPoints.length; i++) {
             if (i === 0) {
-                ctx.moveTo(points[i].x, points[i].y);
+                ctx.moveTo(allPoints[i].x, allPoints[i].y);
             } else {
-                ctx.lineTo(points[i].x, points[i].y);
+                ctx.lineTo(allPoints[i].x, allPoints[i].y);
             }
         }
 
         ctx.stroke();
 
-        // Стрелки направления на траектории
-        this._drawTrackArrows(points, visibleTrack);
+        // Стрелки — только на внутренних точках (не на краях окружности)
+        this._drawTrackArrows(innerPoints, visibleTrack);
 
-        // Маркеры AOS (зелёный) и LOS (красный) на концах траектории
-        this._drawAosLosMarkers(points);
+        // Маркеры AOS/LOS — точно на концах линии
+        this._drawAosLosMarkers(allPoints);
     };
 
     /**
-     * Отрисовка стрелок направления на траектории
+     * Отрисовка стрелок направления на траектории.
+     * Всегда рисует стрелку в точке TCA (макс. элевация) + дополнительные по интервалу.
+     * @param {Array} points - массив точек с x, y, time, el
+     * @param {Array} visibleTrack - массив точек трека с time
+     * @param {string} [arrowColor] - цвет стрелок (для текущего спутника — selectedTrack)
      */
-    SkyView.prototype._drawTrackArrows = function(points, visibleTrack) {
+    SkyView.prototype._drawTrackArrows = function(points, visibleTrack, arrowColor) {
+        if (points.length < 3) {return;}
+
+        // Стрелка в точке TCA (максимальная элевация) — рисуется всегда
+        let tcaIdx = Math.floor((points.length - 1) / 2);
+        let maxEl = -Infinity;
+        for (let i = 1; i < points.length - 1; i++) {
+            if (points[i].el > maxEl) {
+                maxEl = points[i].el;
+                tcaIdx = i;
+            }
+        }
+
+        let prev = points[tcaIdx - 1];
+        let curr = points[tcaIdx];
+        let next = points[tcaIdx + 1];
+        let dx = next.x - prev.x;
+        let dy = next.y - prev.y;
+        this._drawArrow(curr.x, curr.y, Math.atan2(dy, dx), arrowColor);
+
+        // Дополнительные стрелки по интервалу (для длинных пролётов)
         const arrowInterval = this.options.arrowInterval;
         let lastArrowTime = points[0].time;
-        let arrowDrawn = false;
 
         for (let i = 1; i < points.length - 1; i++) {
+            if (i === tcaIdx) {continue;}
+
             const point = visibleTrack[i];
-
             if (point.time - lastArrowTime >= arrowInterval) {
-                const prev = points[i - 1];
-                const curr = points[i];
-                const next = points[i + 1];
-
-                const dx = next.x - prev.x;
-                const dy = next.y - prev.y;
-                const angle = Math.atan2(dy, dx);
-
-                this._drawArrow(curr.x, curr.y, angle);
+                prev = points[i - 1];
+                curr = points[i];
+                next = points[i + 1];
+                dx = next.x - prev.x;
+                dy = next.y - prev.y;
+                this._drawArrow(curr.x, curr.y, Math.atan2(dy, dx), arrowColor);
                 lastArrowTime = point.time;
-                arrowDrawn = true;
             }
-        }
-
-        // На коротких пролётах рисуем одну стрелку в точке TCA (макс. элевация)
-        if (!arrowDrawn && points.length >= 3) {
-            let midIdx = Math.floor((points.length - 1) / 2); // запасной вариант
-            let maxEl = -Infinity;
-            for (let i = 1; i < points.length - 1; i++) {
-                if (points[i].el > maxEl) {
-                    maxEl = points[i].el;
-                    midIdx = i;
-                }
-            }
-
-            const prev = points[midIdx - 1];
-            const curr = points[midIdx];
-            const next = points[midIdx + 1];
-
-            const dx = next.x - prev.x;
-            const dy = next.y - prev.y;
-            const angle = Math.atan2(dy, dx);
-
-            this._drawArrow(curr.x, curr.y, angle);
         }
     };
 
     /**
-     * Отрисовка маркеров AOS (начало) и LOS (конец) точно на внешней окружности
-     * Маркеры размещаются на пересечении траектории с горизонтом (el=0)
-     * Используем экстраполяцию для нахождения точного азимута пересечения
-     * @param {Array} points - Массив точек траектории с координатами
+     * Отрисовка маркеров AOS и LOS точно на концах линии траектории
+     * @param {Array} points - Полный массив точек (первая = AOS на окружности, последняя = LOS)
      */
     SkyView.prototype._drawAosLosMarkers = function(points) {
         if (points.length < 2) {return;}
@@ -496,21 +558,15 @@
         const ctx = this.ctx;
         const markerRadius = 6;
 
-        // Находим азимут точки пересечения траектории с горизонтом (el=0)
-        // Экстраполируем между первыми двумя точками
-        const startAz = this._findHorizonCrossing(points[0], points[1]);
+        const aosPoint = points[0];
+        const losPoint = points[points.length - 1];
 
-        // Экстраполируем между последними двумя точками
-        const endAz = this._findHorizonCrossing(
-            points[points.length - 1],
-            points[points.length - 2]
-        );
+        this.passInfo.aosCanvasY = aosPoint.y;
+        this.passInfo.losCanvasY = losPoint.y;
+        this.passInfo.aosAz = aosPoint.az;
+        this.passInfo.losAz = losPoint.az;
 
-        // Вычисляем координаты маркеров точно на внешней окружности (el=0)
-        const aosPoint = this.azElToXY(startAz, 0);
-        const losPoint = this.azElToXY(endAz, 0);
-
-        // AOS маркер (зелёный) - начало видимости
+        // AOS маркер (зелёный) — начало видимости
         ctx.beginPath();
         ctx.arc(aosPoint.x, aosPoint.y, markerRadius, 0, Math.PI * 2);
         ctx.fillStyle = this.colors.aosMarker;
@@ -519,7 +575,7 @@
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // LOS маркер (красный) - конец видимости
+        // LOS маркер (красный) — конец видимости
         ctx.beginPath();
         ctx.arc(losPoint.x, losPoint.y, markerRadius, 0, Math.PI * 2);
         ctx.fillStyle = this.colors.losMarker;
@@ -566,50 +622,7 @@
     };
 
     /**
-     * Отрисовка маркеров AOS и LOS в указанных точках
-     * @param {Object} aosPoint - Координаты {x, y} для AOS маркера
-     * @param {Object} losPoint - Координаты {x, y} для LOS маркера
-     */
-    SkyView.prototype._drawAosLosMarkersAtPoints = function(aosPoint, losPoint) {
-        const ctx = this.ctx;
-        const markerRadius = 6;
-
-        // Маркер AOS (зелёный) - начало видимости
-        ctx.beginPath();
-        ctx.arc(aosPoint.x, aosPoint.y, markerRadius, 0, Math.PI * 2);
-        ctx.fillStyle = this.colors.aosMarker;
-        ctx.fill();
-        ctx.strokeStyle = this.colors.markerBorder;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        // Маркер LOS (красный) - конец видимости
-        ctx.beginPath();
-        ctx.arc(losPoint.x, losPoint.y, markerRadius, 0, Math.PI * 2);
-        ctx.fillStyle = this.colors.losMarker;
-        ctx.fill();
-        ctx.strokeStyle = this.colors.markerBorder;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-    };
-
-    /**
-     * @deprecated Используйте _drawAosLosMarkersAtPoints
-     * Оставлено для обратной совместимости
-     */
-    SkyView.prototype._drawAosLosMarkers = function(visibleTrack) {
-        if (visibleTrack.length < 2) {return;}
-
-        const startAz = visibleTrack[0].az;
-        const endAz = visibleTrack[visibleTrack.length - 1].az;
-        const aosPoint = this.azElToXY(startAz, 0);
-        const losPoint = this.azElToXY(endAz, 0);
-
-        this._drawAosLosMarkersAtPoints(aosPoint, losPoint);
-    };
-
-    /**
-     * Отрисовка ауры (окружности) вокруг спутника. Рисуется на заднем плане (до траектории и значка).
+     * Контур ауры вокруг спутника под наблюдением (без заливки). Рисуется до траектории и значка.
      * @param {number} [x] - X (если не задано — вычисляется из currentPos)
      * @param {number} [y] - Y (если не задано — вычисляется из currentPos)
      */
@@ -632,17 +645,8 @@
         const pulse = 1 + 0.15 * Math.sin(this._animationPhase * 2);
         const currentR = auraR * pulse;
 
-        // Градиентная заливка (тёмная в центре)
-        const gradient = ctx.createRadialGradient(x, y, 0, x, y, currentR);
-        gradient.addColorStop(0, this.colors.satelliteAura);
-        gradient.addColorStop(1, 'rgba(180, 80, 80, 0)');
-
-        ctx.beginPath();
-        ctx.arc(x, y, currentR, 0, Math.PI * 2);
-        ctx.fillStyle = gradient;
-        ctx.fill();
-
-        // Граница ауры
+        // Без радиальной заливки: на светлом небе тёмное пятно выглядело грязно.
+        // Оставляем только лёгкий контур по радиусу ауры.
         ctx.beginPath();
         ctx.arc(x, y, currentR, 0, Math.PI * 2);
         ctx.strokeStyle = this.colors.satelliteAuraBorder;
@@ -665,12 +669,9 @@
 
         // Аура рисуется в draw() до траектории, спутник — поверх
 
-        // Анимация свечения
-        const glowPulse = 0.5 + 0.5 * Math.sin(this._animationPhase * 3);
-
-        // Внешнее свечение
-        ctx.shadowColor = this.colors.satellite;
-        ctx.shadowBlur = 8 + 4 * glowPulse;
+        // Без canvas-shadow: на светлом небе размытие даёт тёмное «грязное» ореол вокруг значка.
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
 
         // Иконка спутника (улучшенный дизайн)
         const size = 8;
@@ -679,7 +680,7 @@
         ctx.fillStyle = this.colors.satellite;
         ctx.fillRect(p.x - size / 2, p.y - size / 2, size, size);
 
-        // "Солнечные панели" - с градиентом
+        // Солнечные панели
         const panelWidth = size * 1.2;
         const panelHeight = size * 0.5;
 
@@ -689,7 +690,7 @@
         ctx.fillRect(p.x + size / 2 + 2, p.y - panelHeight / 2, panelWidth, panelHeight);
 
         // Линии на панелях (детализация)
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.strokeStyle = this.colors.satPanelLine;
         ctx.lineWidth = 1;
 
         // Линии на левой панели
@@ -712,21 +713,34 @@
 
         // Обводка корпуса
         ctx.shadowBlur = 0;
-        ctx.strokeStyle = '#ffffff';
+        ctx.strokeStyle = this.colors.satBodyOutline;
         ctx.lineWidth = 1;
         ctx.strokeRect(p.x - size / 2, p.y - size / 2, size, size);
 
-        // Подпись спутника
+        // Подписи спутника под наблюдением — обводка из темы (светлая тема: светлый ореол)
+        ctx.shadowBlur = 0;
+        ctx.lineJoin = 'round';
+        ctx.miterLimit = 2;
+        ctx.strokeStyle = this.colors.canvasTextStroke;
+        ctx.lineWidth = 3;
+
         if (this.satellite.name) {
-            ctx.font = 'bold 10px sans-serif';
-            ctx.fillStyle = this.colors.satLabel;
+            const nm = _shortName(this.satellite.name);
+            ctx.font = 'bold 12px sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'bottom';
-            ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-            ctx.shadowBlur = 3;
-            ctx.fillText(this.satellite.name, p.x + size + 5, p.y - 10);
-            ctx.shadowBlur = 0;
+            ctx.strokeText(nm, p.x, p.y - 12);
+            ctx.fillStyle = this.colors.satLabel;
+            ctx.fillText(nm, p.x, p.y - 12);
         }
+
+        const azel = '[' + pos.az.toFixed(1) + '\u00b0/' + pos.el.toFixed(1) + '\u00b0]';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.strokeText(azel, p.x, p.y + 10);
+        ctx.fillStyle = this.colors.satLabel;
+        ctx.fillText(azel, p.x, p.y + 10);
     };
 
     /**
@@ -772,7 +786,7 @@
 
                 ctx.beginPath();
                 ctx.arc(waveCenterX, waveCenterY, waveR, arcStart, arcEnd);
-                ctx.strokeStyle = `rgba(0, 255, 200, ${alpha})`;
+                ctx.strokeStyle = 'rgba(' + this.colors.signalWaveRgb + ',' + alpha + ')';
                 ctx.lineWidth = 2;
                 ctx.stroke();
             }
@@ -803,90 +817,48 @@
         return min + 'm ' + (sec < 10 ? '0' : '') + sec + 's';
     };
 
-    /**
-     * Отрисовка информационной панели внизу
-     * Колонка 1: NORAD ID / Длительность
-     * Колонка 2: AOS / LOS
-     * Колонка 3: Az / El
-     */
-    SkyView.prototype._drawInfo = function() {
-        const ctx = this.ctx;
-        const pos = this.satellite.currentPos;
-        const w = this.canvas.width;
-        const h = this.canvas.height;
-        const panelHeight = this.infoPanelHeight;
-        const panelY = h - panelHeight;
+    SkyView.prototype._reloadColorsFromCss = function() {
+        const waveRgbRaw = cssVar('--sky-signal-wave-rgb', '0, 255, 200').trim().replace(/\s/g, '');
+        this.colors = {
+            background: cssVar('--sky-bg', '#0c1420'),
+            skyFill:    cssVar('--sky-fill', '#182838'),
+            grid:     cssVar('--sky-grid', '#3a5060'),
+            gridText: cssVar('--sky-grid-text', '#d0d8e0'),
+            elevationLabel: cssVar('--sky-elevation-label', '#d0d8e0'),
+            elevationLabelOffsetX: -5,
+            elevationLabelOffsetY: -5,
+            elevationLabelSize: 11,
+            cardinalLabel: cssVar('--sky-label-muted', '#d0d8e0'),
+            azimuthLabel: cssVar('--sky-azimuth-label', '#d0d8e0'),
+            track:      cssVar('--sky-track', '#00cc00'),
+            trackArrow: cssVar('--sky-track-arrow', '#66dd66'),
+            aosMarker:    cssVar('--sky-aos', '#00ff00'),
+            losMarker:    cssVar('--sky-los', '#ff4444'),
+            markerBorder: cssVar('--sky-marker-border', '#ffffff'),
+            satellite:       cssVar('--sky-satellite', '#00ffff'),
+            satelliteSignal: themeRgba('sky-satellite-signal', 'rgba(0, 255, 200, 0.5)'),
+            satLabel:        cssVar('--sky-satellite-label', '#ffffff'),
+            satelliteAuraBorder: cssVar('--sky-satellite-aura-border', '#ff8888'),
+            observer:          cssVar('--sky-observer', '#ffaa00'),
+            observerSecondary: cssVar('--sky-observer-secondary', '#ff6600'),
+            infoText:  cssVar('--sky-info-text', '#00d4aa'),
+            infoLabel: cssVar('--sky-info-label', '#ffffff'),
+            timeText:  cssVar('--sky-time-text', '#708898'),
+            selectedTrack:  cssVar('--sky-selected-track', '#ffff00'),
+            selectedSatLabel: cssVar('--sky-selected-sat-label', '#d8c878'),
+            selectedMarker: cssVar('--sky-selected-marker', '#2ecc71'),
+            canvasTextStroke: cssVar('--sky-canvas-text-stroke', 'rgba(0, 0, 0, 0.9)'),
+            satPanelLine:     cssVar('--sky-sat-panel-line', 'rgba(255, 255, 255, 0.3)'),
+            satBodyOutline:   cssVar('--sky-sat-body-outline', '#ffffff'),
+            arrowOutline:     cssVar('--sky-arrow-outline', 'rgba(0, 0, 0, 0.75)'),
+            signalWaveRgb:    waveRgbRaw || '0,255,200'
+        };
+        this._skyGridLineW = parseFloat(cssVar('--sky-grid-line-width', '1')) || 1;
+        this._skyGridOuterW = parseFloat(cssVar('--sky-grid-outer-width', '2')) || 2;
+    };
 
-        const panelPadding = 6;
-        const cornerRadius = 8;
-
-        ctx.beginPath();
-        ctx.roundRect(panelPadding, panelY + 4, w - panelPadding * 2, panelHeight - 8, cornerRadius);
-        ctx.fillStyle = 'rgba(20, 30, 45, 0.9)';
-        ctx.fill();
-        ctx.strokeStyle = this.colors.grid;
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        const col1X = panelPadding + 8;
-        const col2X = w * 0.38;
-        const col3X = w * 0.70;
-        const row1Y = panelY + 20; // Увеличено с 18
-        const row2Y = panelY + 40; // Увеличено с 34 (больший отступ между строками)
-
-        const passInfo = this.passInfo;
-
-        // === Колонка 1: NORAD ID и Длительность ===
-        ctx.font = 'bold 12px monospace';
-        ctx.textBaseline = 'middle';
-        ctx.textAlign = 'left';
-
-        ctx.fillStyle = this.colors.infoLabel;
-        ctx.fillText('ID:', col1X, row1Y);
-        ctx.fillStyle = this.colors.timeText;
-        const noradText = this.satellite.noradId ? String(this.satellite.noradId) : '-----';
-        ctx.fillText(noradText, col1X + 52, row1Y);
-
-        ctx.fillStyle = this.colors.infoLabel;
-        ctx.fillText('Dur:', col1X, row2Y);
-        if (passInfo.aosTime && passInfo.losTime) {
-            const duration = passInfo.losTime - passInfo.aosTime;
-            ctx.fillStyle = this.colors.timeText;
-            ctx.fillText(this._formatDuration(duration), col1X + 35, row2Y);
-        } else {
-            ctx.fillStyle = this.colors.timeText;
-            ctx.fillText('--:--', col1X + 35, row2Y);
-        }
-
-        // === Колонка 2: AOS и LOS времена ===
-        ctx.font = '12px monospace';
-
-        ctx.textAlign = 'left';
-        ctx.fillStyle = this.colors.aosMarker;
-        ctx.fillText('AOS:', col2X, row1Y);
-        ctx.fillStyle = this.colors.timeText;
-        ctx.fillText(this._formatTime(passInfo.aosTime), col2X + 32, row1Y);
-
-        ctx.fillStyle = this.colors.losMarker;
-        ctx.fillText('LOS:', col2X, row2Y);
-        ctx.fillStyle = this.colors.timeText;
-        ctx.fillText(this._formatTime(passInfo.losTime), col2X + 32, row2Y);
-
-        // === Колонка 3: Азимут и Угол места ===
-        ctx.font = 'bold 12px monospace';
-
-        ctx.textAlign = 'left';
-        ctx.fillStyle = this.colors.infoLabel;
-        ctx.fillText('Az:', col3X, row1Y);
-        ctx.fillStyle = this.colors.infoText;
-        const azText = pos ? pos.az.toFixed(1) + '°' : '---.-°';
-        ctx.fillText(azText, col3X + 25, row1Y);
-
-        ctx.fillStyle = this.colors.infoLabel;
-        ctx.fillText('El:', col3X, row2Y);
-        ctx.fillStyle = this.colors.infoText;
-        const elText = pos ? pos.el.toFixed(1) + '°' : '---.-°';
-        ctx.fillText(elText, col3X + 25, row2Y);
+    SkyView.prototype.refreshThemeColors = function() {
+        this._reloadColorsFromCss();
     };
 
     /**
@@ -912,10 +884,23 @@
         this._updateGeometry();
         this._drawBackground();
         this._drawObserver();
-        this._drawSatelliteAura(); // Круг на заднем плане (до траектории и спутника)
-        this._drawTrack();
-        this._drawSatellite();
-        this._drawInfo();
+        // Слой 1: вторичные (серые пунктиры).
+        this._drawSecondaryLayer();
+        // Слой 2: выбранный спутник (жёлтый трек + маркер).
+        // Рисуем, если selected отличается от tracking ИЛИ tracking-слой без данных.
+        if (this._selectedSatellite.noradId) {
+            const sameAsTracking = this.satellite.noradId &&
+                this._selectedSatellite.noradId === this.satellite.noradId;
+            if (!sameAsTracking || !(this.satellite.track && this.satellite.track.length >= 2)) {
+                this._drawSelectedLayer();
+            }
+        }
+        // Слой 3: спутник под наблюдением (текущий стиль).
+        if (this.satellite.noradId) {
+            this._drawSatelliteAura();
+            this._drawTrack();
+            this._drawSatellite();
+        }
     };
 
     /**
@@ -928,6 +913,7 @@
         if (noradId !== undefined) {
             this.satellite.noradId = noradId;
         }
+        this._updateInfoPanelDOM();
     };
 
     /**
@@ -936,7 +922,13 @@
      * @param {number} el - Угол места в градусах
      */
     SkyView.prototype.setSatellitePosition = function(az, el) {
-        this.satellite.currentPos = { az: az, el: el };
+        const a = Number(az);
+        const e = Number(el);
+        if (isNaN(a) || isNaN(e)) {
+            this.satellite.currentPos = null;
+            return;
+        }
+        this.satellite.currentPos = { az: a, el: e };
     };
 
     /**
@@ -944,7 +936,8 @@
      */
     SkyView.prototype.clearTrack = function() {
         this.satellite.track = [];
-        this.passInfo = { aosTime: null, losTime: null, maxElTime: null };
+        this.passInfo = { aosTime: null, losTime: null, maxElTime: null, aosCanvasY: null, losCanvasY: null, aosAz: null, losAz: null };
+        this._updateInfoPanelDOM();
     };
 
     /**
@@ -972,6 +965,7 @@
                 this.passInfo.losTime = visible[visible.length - 1].time;
             }
         }
+        this._updateInfoPanelDOM();
     };
 
     /**
@@ -982,6 +976,56 @@
     SkyView.prototype.setPassTimes = function(aosTime, losTime) {
         this.passInfo.aosTime = aosTime;
         this.passInfo.losTime = losTime;
+        this._updateInfoPanelDOM();
+    };
+
+    /**
+     * Привязка DOM-элементов для текстового блока под графиком (AOS, LOS, Длит., Осталось)
+     * @param {Object} els - { aos, los, dur, remaining } — id строки или HTMLElement
+     */
+    SkyView.prototype.setInfoElements = function(els) {
+        const getEl = function(v) {
+            if (!v) {return null;}
+            return typeof v === 'string' ? document.getElementById(v) : v;
+        };
+        this._infoEls = {
+            norad: getEl(els.norad),
+            aos: getEl(els.aos),
+            los: getEl(els.los),
+            dur: getEl(els.dur),
+            remaining: getEl(els.remaining)
+        };
+        this._updateInfoPanelDOM();
+    };
+
+    /** Обновление текстового блока под графиком: AOS, LOS, Длит., время до конца сеанса (Осталось).
+     * При отображении выбранного спутника (отличного от наблюдаемого) показываются данные выбранного. */
+    SkyView.prototype._updateInfoPanelDOM = function() {
+        const e = this._infoEls;
+        if (!e.aos && !e.los && !e.dur && !e.remaining) {return;}
+
+        const showSelected = this._selectedSatellite.noradId && this._selectedSatellite.noradId !== this.satellite.noradId;
+        const info = showSelected ? this._selectedPassInfo : this.passInfo;
+        const noradId = showSelected ? this._selectedSatellite.noradId : this.satellite.noradId;
+
+        const now = Date.now() + (this._serverSkewMs || 0);
+        const aosStr = this._formatTime(info.aosTime);
+        const losStr = this._formatTime(info.losTime);
+        const durMs = (info.aosTime && info.losTime) ? (info.losTime - info.aosTime) : 0;
+        const durStr = this._formatDuration(durMs);
+        let remainingStr = '—';
+        if (info.aosTime && info.losTime && now >= info.aosTime && now <= info.losTime) {
+            const remainingMs = info.losTime - now;
+            if (remainingMs > 0) {
+                remainingStr = this._formatDuration(remainingMs);
+            }
+        }
+
+        if (e.norad) {e.norad.textContent = noradId ? String(noradId) : '—';}
+        if (e.aos) {e.aos.textContent = aosStr;}
+        if (e.los) {e.los.textContent = losStr;}
+        if (e.dur) {e.dur.textContent = durStr;}
+        if (e.remaining) {e.remaining.textContent = remainingStr;}
     };
 
     /**
@@ -1008,6 +1052,304 @@
         Object.assign(this.colors, colors);
     };
 
+
+    // ========== Текущий (выбранный) спутник ==========
+
+    SkyView.prototype.setSelectedSatellitePosition = function(az, el) {
+        this._selectedSatellite.currentPos = { az: Number(az), el: Number(el) };
+    };
+
+    SkyView.prototype.setSelectedSatelliteInfo = function(name, noradId) {
+        this._selectedSatellite.name = name || '';
+        this._selectedSatellite.noradId = noradId || null;
+    };
+
+    SkyView.prototype.setSelectedTrack = function(track) {
+        this._selectedSatellite.track = track || [];
+        this._updateInfoPanelDOM();
+    };
+
+    /** Синхронизация часов: разница между серверным и клиентским временем (мс). */
+    SkyView.prototype.setServerSkew = function(skewMs) {
+        this._serverSkewMs = skewMs || 0;
+    };
+
+    /** Установка времён AOS/LOS для выбранного спутника (для инфопанели под графиком). */
+    SkyView.prototype.setSelectedPassTimes = function(aosTime, losTime) {
+        this._selectedPassInfo.aosTime = aosTime || null;
+        this._selectedPassInfo.losTime = losTime || null;
+        this._updateInfoPanelDOM();
+    };
+
+    SkyView.prototype.clearSelectedSatellite = function() {
+        this._selectedSatellite = { name: '', noradId: null, track: [], currentPos: null };
+        this._selectedPassInfo = { aosTime: null, losTime: null };
+        this._updateInfoPanelDOM();
+    };
+
+    /**
+     * Значок спутника такой же формы, как у спутника под наблюдением (корпус + панели + линии),
+     * без анимации и без пульсирующего круга. Используется для текущего (выбранного) спутника.
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {number} x - центр X
+     * @param {number} y - центр Y
+     * @param {string} fillColor - цвет заливки (например selectedMarker)
+     */
+    SkyView.prototype._drawSatelliteIconStatic = function(ctx, x, y, fillColor) {
+        const size = 8; // как у маркера под наблюдением
+        const panelWidth = size * 1.2;
+        const panelHeight = size * 0.5;
+
+        ctx.fillStyle = fillColor;
+        // Центральный блок (корпус)
+        ctx.fillRect(x - size / 2, y - size / 2, size, size);
+        // Солнечные панели
+        ctx.fillRect(x - size / 2 - panelWidth - 2, y - panelHeight / 2, panelWidth, panelHeight);
+        ctx.fillRect(x + size / 2 + 2, y - panelHeight / 2, panelWidth, panelHeight);
+        // Линии на панелях (детализация)
+        ctx.strokeStyle = this.colors.satPanelLine;
+        ctx.lineWidth = 1;
+        for (let i = 1; i < 3; i++) {
+            const lx = x - size / 2 - panelWidth - 2 + (panelWidth / 3) * i;
+            ctx.beginPath();
+            ctx.moveTo(lx, y - panelHeight / 2);
+            ctx.lineTo(lx, y + panelHeight / 2);
+            ctx.stroke();
+        }
+        for (let j = 1; j < 3; j++) {
+            const rx = x + size / 2 + 2 + (panelWidth / 3) * j;
+            ctx.beginPath();
+            ctx.moveTo(rx, y - panelHeight / 2);
+            ctx.lineTo(rx, y + panelHeight / 2);
+            ctx.stroke();
+        }
+        // Обводка корпуса
+        ctx.strokeStyle = this.colors.satBodyOutline;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x - size / 2, y - size / 2, size, size);
+    };
+
+    /**
+     * Отрисовка слоя текущего (выбранного) спутника: сплошная жёлтая трасса
+     * от горизонта до горизонта, стрелки направления, маркеры AOS/LOS на лимбе.
+     * @private
+     */
+    SkyView.prototype._drawSelectedLayer = function() {
+        const sel = this._selectedSatellite;
+        const ctx = this.ctx;
+
+        if (sel.track && sel.track.length >= 2) {
+            const visibleTrack = sel.track.filter(function(p) { return p.el >= 0; });
+            if (visibleTrack.length < 2) {
+                // Недостаточно видимых точек — ничего не рисуем.
+            } else {
+                // Азимуты пересечения с горизонтом (el=0) для AOS и LOS.
+                const startAz = this._findHorizonCrossing(visibleTrack[0], visibleTrack[1]);
+                const endAz = this._findHorizonCrossing(
+                    visibleTrack[visibleTrack.length - 1],
+                    visibleTrack[visibleTrack.length - 2]
+                );
+                const aosEdge = this.azElToXY(startAz, 0);
+                const losEdge = this.azElToXY(endAz, 0);
+
+                // Внутренние точки (видимая часть трека).
+                const innerPoints = [];
+                for (let i = 0; i < visibleTrack.length; i++) {
+                    const tp = visibleTrack[i];
+                    const p = this.azElToXY(tp.az, tp.el);
+                    innerPoints.push({ x: p.x, y: p.y, time: tp.time, el: tp.el, az: tp.az });
+                }
+
+                // Полный путь: от горизонта (AOS) через видимые точки до горизонта (LOS).
+                const allPoints = [
+                    { x: aosEdge.x, y: aosEdge.y, time: visibleTrack[0].time, el: 0, az: startAz }
+                ].concat(innerPoints).concat([
+                    { x: losEdge.x, y: losEdge.y, time: visibleTrack[visibleTrack.length - 1].time, el: 0, az: endAz }
+                ]);
+
+                // Сплошная жёлтая линия от горизонта до горизонта.
+                ctx.strokeStyle = this.colors.selectedTrack;
+                ctx.lineWidth = 2;
+                ctx.setLineDash([]);
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.beginPath();
+                for (let j = 0; j < allPoints.length; j++) {
+                    if (j === 0) { ctx.moveTo(allPoints[j].x, allPoints[j].y); }
+                    else { ctx.lineTo(allPoints[j].x, allPoints[j].y); }
+                }
+                ctx.stroke();
+
+                // Стрелки направления (цвет трека выбранного спутника).
+                this._drawTrackArrows(innerPoints, visibleTrack, this.colors.selectedTrack);
+
+                // Маркеры AOS/LOS на окружности горизонта.
+                const markerRadius = 5;
+                ctx.beginPath();
+                ctx.arc(aosEdge.x, aosEdge.y, markerRadius, 0, Math.PI * 2);
+                ctx.fillStyle = this.colors.aosMarker;
+                ctx.fill();
+                ctx.strokeStyle = this.colors.markerBorder;
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(losEdge.x, losEdge.y, markerRadius, 0, Math.PI * 2);
+                ctx.fillStyle = this.colors.losMarker;
+                ctx.fill();
+                ctx.stroke();
+            }
+        }
+
+        // Маркер — такой же значок, как под наблюдением, другим цветом и без анимации.
+        if (sel.currentPos && sel.currentPos.el > 0) {
+            const mp = this.azElToXY(sel.currentPos.az, sel.currentPos.el);
+            this._drawSatelliteIconStatic(ctx, mp.x, mp.y, this.colors.selectedMarker);
+
+            ctx.lineJoin = 'round';
+            ctx.miterLimit = 2;
+
+            if (sel.name) {
+                const nameLabel = _shortName(sel.name);
+                ctx.font = 'bold 12px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+                ctx.strokeStyle = this.colors.canvasTextStroke;
+                ctx.lineWidth = 3;
+                ctx.strokeText(nameLabel, mp.x, mp.y - 12);
+                ctx.fillStyle = this.colors.selectedSatLabel;
+                ctx.fillText(nameLabel, mp.x, mp.y - 12);
+            }
+
+            const azelLabel = '[' + sel.currentPos.az.toFixed(1) + '\u00b0/' + sel.currentPos.el.toFixed(1) + '\u00b0]';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.strokeStyle = this.colors.canvasTextStroke;
+            ctx.lineWidth = 3;
+            ctx.strokeText(azelLabel, mp.x, mp.y + 10);
+            ctx.fillStyle = this.colors.selectedSatLabel;
+            ctx.fillText(azelLabel, mp.x, mp.y + 10);
+        }
+    };
+
+    // ========== Вторичные спутники ==========
+
+    /**
+     * Обновление вторичных спутников группы.
+     * @param {Array} satArray — массив {noradId, name, az, el, track, isVisible}.
+     */
+    SkyView.prototype.setSecondaryPositions = function(satArray) {
+        if (!satArray) { return; }
+        const newMap = {};
+        for (let i = 0; i < satArray.length; i++) {
+            const s = satArray[i];
+            if (!s || !s.noradId) { continue; }
+            const existing = this._secondarySatellites[s.noradId] || {};
+            newMap[s.noradId] = {
+                noradId: s.noradId,
+                name: s.name || existing.name || '',
+                currentPos: (s.az !== null && s.el !== null) ? { az: s.az, el: s.el } : existing.currentPos || null,
+                track: existing.track || null,
+                isVisible: s.isVisible !== undefined ? s.isVisible : true
+            };
+        }
+        this._secondarySatellites = newMap;
+    };
+
+    /**
+     * Очистка всех вторичных спутников (при смене группы / смене primary).
+     */
+    SkyView.prototype.clearSecondarySatellites = function() {
+        this._secondarySatellites = {};
+    };
+
+    /**
+     * Обновление трека вторичного спутника.
+     * @param {number} noradId — NORAD ID.
+     * @param {Array} track — массив [{az, el, time}, ...].
+     */
+    SkyView.prototype.setSecondaryTrack = function(noradId, track) {
+        // Обновляем только существующие записи (не воскрешаем удалённые).
+        if (this._secondarySatellites[noradId]) {
+            this._secondarySatellites[noradId].track = track;
+        }
+    };
+
+    /**
+     * Отрисовка вторичных спутников (траектории + маркеры).
+     * @private
+     */
+    SkyView.prototype._drawSecondaryLayer = function() {
+        const ids = Object.keys(this._secondarySatellites);
+        const sm = window._stateManager;
+        for (let i = 0; i < ids.length; i++) {
+            const sat = this._secondarySatellites[ids[i]];
+            const nid = parseInt(ids[i], 10);
+            const markerColor = sm ? sm.getMarkerColor(nid) : null;
+            const trackColor = sm ? sm.getTrackColor(nid) : null;
+            if (sat.track && sat.track.length > 0) {
+                this._drawSecondaryTrack(sat, trackColor);
+            }
+            if (sat.currentPos && sat.currentPos.el > 0) {
+                this._drawSecondaryMarker(sat, markerColor);
+            }
+        }
+    };
+
+    /**
+     * Пунктирная траектория вторичного спутника (серый цвет для читаемости).
+     * @private
+     */
+    SkyView.prototype._drawSecondaryTrack = function(sat, paletteColor) {
+        const ctx = this.ctx;
+        const track = sat.track;
+        if (!track || track.length < 2) { return; }
+
+        const isLight = typeof getThemeId === 'function' && getThemeId() === 'light';
+        ctx.strokeStyle = paletteColor || 'rgba(160, 160, 160, 0.85)';
+        ctx.lineWidth = isLight ? 1.05 : 1.5;
+        ctx.setLineDash(isLight ? [3, 5] : [4, 3]);
+        ctx.beginPath();
+
+        let started = false;
+        for (let i = 0; i < track.length; i++) {
+            const pt = track[i];
+            if (pt.el < 0) { started = false; continue; }
+            const xy = this.azElToXY(pt.az, pt.el);
+            if (!started) {
+                ctx.moveTo(xy.x, xy.y);
+                started = true;
+            } else {
+                ctx.lineTo(xy.x, xy.y);
+            }
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+    };
+
+    /**
+     * Маркер вторичного спутника — серый заполненный кружок + обводка (хорошо виден на фоне).
+     * @private
+     */
+    SkyView.prototype._drawSecondaryMarker = function(sat, paletteColor) {
+        const ctx = this.ctx;
+        const pos = sat.currentPos;
+        if (!pos || pos.el < 0) { return; }
+
+        const xy = this.azElToXY(pos.az, pos.el);
+        const isLight = typeof getThemeId === 'function' && getThemeId() === 'light';
+        const r = isLight ? 3 : 4;
+
+        ctx.beginPath();
+        ctx.arc(xy.x, xy.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = paletteColor || 'rgba(140, 140, 140, 0.95)';
+        ctx.fill();
+        ctx.strokeStyle = paletteColor
+            ? (isLight ? 'rgba(42,48,58,0.32)' : 'rgba(255,255,255,0.7)')
+            : 'rgba(220, 220, 220, 0.9)';
+        ctx.lineWidth = isLight ? 1 : 1.5;
+        ctx.stroke();
+    };
 
     // Экспорт
     window.SkyView = SkyView;

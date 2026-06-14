@@ -4,56 +4,63 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/art-injener/satellite-scout/internal/config"
 	"github.com/art-injener/satellite-scout/internal/handlers"
-	"github.com/art-injener/satellite-scout/internal/services"
+	"github.com/art-injener/satellite-scout/internal/sdr"
 )
 
 // setupRoutes регистрирует все HTTP-маршруты приложения.
-func setupRoutes(
-	mux *http.ServeMux,
-	cfg *config.Config,
-	sseHub *handlers.SSEHub,
-	passService *services.PassService,
-) {
-	// Инициализация обработчиков.
-	pageHandler, err := handlers.NewPageHandler("templates", true)
+func setupRoutes(mux *http.ServeMux, deps *routeDeps) {
+	pageHandler, err := handlers.NewPageHandler(
+		deps.Templates,
+		deps.Cfg.DevMode,
+		deps.Cfg.UI.Theme,
+		deps.ConfigStore,
+	)
 	if err != nil {
 		slog.Error("failed to initialize page handler", "error", err)
 		panic("page handler init failed: " + err.Error())
 	}
 
-	apiHandler := handlers.NewAPIHandler(cfg)
-	passHandler := handlers.NewPassHandler(passService)
+	apiHandler := handlers.NewAPIHandler(deps.Cfg)
+	trackingHandler := handlers.NewTrackingHandler(deps.Tracking)
+	settingsHandler := handlers.NewSettingsHandler(deps.ConfigStore)
+	sdrHandler := handlers.NewSDRHandler(sdr.NewService())
+	exclusionsHandler := handlers.NewExclusionsHandler(deps.Exclude, deps.PassCache, deps.Group)
 
-	// Статические файлы.
-	staticFS := http.FileServer(http.Dir("static"))
-	mux.Handle("GET /static/", http.StripPrefix("/static/", staticFS))
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(deps.Static))))
 
-	// Маршруты страниц.
+	// Страницы.
 	mux.HandleFunc("GET /", pageHandler.Index)
 	mux.HandleFunc("GET /tracking", pageHandler.Tracking)
-	mux.HandleFunc("GET /passes", pageHandler.Passes)
-	mux.HandleFunc("GET /receiver", pageHandler.Receiver)
-	mux.HandleFunc("GET /simulation", pageHandler.Simulation)
+	mux.HandleFunc("GET /settings", redirectFound("/tracking?settings=open"))
 
-	// API маршруты.
+	// Legacy URL — единая страница сеанса
+	mux.HandleFunc("GET /receiver", redirectFound("/tracking"))
+	mux.HandleFunc("GET /simulation", redirectFound("/tracking"))
+
+	// API.
 	mux.HandleFunc("GET /api/health", apiHandler.HealthCheck)
 	mux.HandleFunc("GET /api/config", apiHandler.GetConfig)
+	mux.HandleFunc("GET /api/settings", settingsHandler.Get)
+	mux.HandleFunc("PUT /api/settings", settingsHandler.Update)
+	mux.HandleFunc("GET /api/sdr/devices", sdrHandler.ListDevices)
+	mux.HandleFunc("POST /api/sdr/test", sdrHandler.Test)
+	mux.HandleFunc("POST /api/tracking/current", trackingHandler.SetCurrent)
+	mux.HandleFunc("POST /api/tracking/reset", trackingHandler.ResetCurrent)
+	mux.HandleFunc("POST /api/exclusions", exclusionsHandler.Add)
+	mux.HandleFunc("GET /api/exclusions", exclusionsHandler.List)
+	mux.HandleFunc("DELETE /api/exclusions/{norad}", exclusionsHandler.Delete)
 
-	// API пролётов.
-	mux.HandleFunc("GET /api/passes", passHandler.GetPasses)
+	if deps.SatNOGS != nil {
+		satnogsHandler := handlers.NewSatNOGSHandler(deps.SatNOGS)
+		mux.HandleFunc("GET /api/satnogs/transmitters/{norad}", satnogsHandler.GetTransmitters)
+	}
 
-	// SSE endpoint — EventSource-совместимый поток данных.
-	// WriteTimeout для SSE-соединений отключается per-connection в ServeHTTP.
-	mux.Handle("GET /api/sse", sseHub)
+	mux.Handle("GET /api/sse", deps.SSE)
+}
 
-	// Частичные шаблоны (HTMX).
-	mux.HandleFunc("GET /partials/passes", func(w http.ResponseWriter, r *http.Request) {
-		// TODO: реализовать частичный шаблон таблицы пролётов
-		w.Header().Set("Content-Type", "text/html")
-		if _, writeErr := w.Write([]byte(`<p class="empty-state">Нет запланированных пролётов</p>`)); writeErr != nil {
-			slog.Error("failed to write response", "error", writeErr)
-		}
-	})
+func redirectFound(path string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, path, http.StatusFound)
+	}
 }

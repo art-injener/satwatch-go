@@ -1,0 +1,21 @@
+/*
+ * Общие стили нижней панели и переиспользуемые элементы спектра/водопада.
+ *
+ * После редизайна Авто-режима (ADR-004 v2026-06-03) старая разметка
+ * `bp-pane-overview` / `bp-pane-follow` удалена: SDR-форма, FFT-спектр,
+ * водопад и индикаторы Az/El переехали в Ручной режим (manual-layout.css).
+ *
+ * Здесь остаются только стили, которые продолжают использоваться:
+ *   • Полоса шкалы частот над водопадом (используется в Ручном:
+ *     #manual-spec-scale.bp-freq-scale-canvas).
+ *
+ * Каркас .bottom-panel / .bottom-panel__body / .bottom-panel__side /
+ * .panel-collapse-btn определён в main.css. Сетка нижней панели Авто
+ * (две колонки `Передатчики` + `Heat-grid`) — в auto-mode.css.
+ */
+
+.bp-freq-scale-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}

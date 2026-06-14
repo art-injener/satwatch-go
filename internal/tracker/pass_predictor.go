@@ -283,16 +283,17 @@ func buildPass(
 	noradID := 0
 	orbitNumber := 0
 
+	satAlias := ""
 	if tle != nil {
-		satName = tle.Name
+		satName, satAlias = ParseSatName(tle.Name)
 		noradID = tle.NoradID
-		// Номер орбиты на момент TCA
 		orbitNumber = ComputeOrbitNumber(tle, tcaTime)
 	}
 
 	return &Pass{
 		NoradID:     noradID,
 		SatName:     satName,
+		SatAlias:    satAlias,
 		OrbitNumber: orbitNumber,
 		AOS:         aosExact.UnixMilli(),
 		AOSAz:       math.Round(aosAz*10) / 10,
@@ -549,11 +550,29 @@ func PredictPassesForAll(
 		allPasses = append(allPasses, passes...)
 	}
 
+	// Дедупликация: один спутник может входить в несколько групп (например cubesat и amateur).
+	allPasses = deduplicatePassesByNoradAndAOS(allPasses)
+
 	sort.Slice(allPasses, func(i, j int) bool {
 		return allPasses[i].AOS < allPasses[j].AOS
 	})
 
 	return allPasses, nil
+}
+
+// deduplicatePassesByNoradAndAOS оставляет один пролёт на пару (NoradID, AOS).
+func deduplicatePassesByNoradAndAOS(passes []*Pass) []*Pass {
+	seen := make(map[string]struct{})
+	var out []*Pass
+	for _, p := range passes {
+		key := fmt.Sprintf("%d:%d", p.NoradID, p.AOS)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, p)
+	}
+	return out
 }
 
 // predictPassesForTLEs — внутренняя функция расчёта пролётов для списка TLE.

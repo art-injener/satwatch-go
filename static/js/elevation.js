@@ -28,12 +28,12 @@
         }
 
         // Высота инфо-панели внизу canvas (как в SkyView)
-        this.infoPanelHeight = 30;
+        this.infoPanelHeight = 0;
 
         this.centerX = this.logicalWidth / 2;
         this.radius = this.logicalWidth / 2 - 25;
 
-        const topPadding = 15;
+        const topPadding = 24; // чтобы верх дуги и метка 90° не обрезались
         this.centerY = this.radius + topPadding + 5;
 
         // Позиция антенны
@@ -48,33 +48,79 @@
         // Видимость спутника
         this.isVisible = true;
 
-        this.colors = {
-            bgPrimary: '#0a0e14',
-            bgSecondary: '#12171f',
-            border: '#2a3444',
-            accent: '#00d4aa',
-            accentBlue: '#00a8ff',
-            accentRed: '#ff6b6b',
-            textPrimary: '#e6e8eb',
-            textSecondary: '#8b919a',
-            textMuted: '#5c6370',
-            satelliteLine: 'rgba(255, 255, 255, 0.5)',
-            satelliteMarker: '#ffffff',
-            outOfView: 'rgba(255, 107, 107, 0.7)'
-        };
+        this._reloadColorsFromCss();
 
         this.antennaScale = this.radius / 100 * 0.95;
 
+        this._infoEls = { ant: null, sat: null };
+
         // Вычисляем нижнюю точку постамента для позиционирования инфо-панели
+        this._recalcPedestalBottom();
+    }
+
+    ElevationIndicator.prototype._reloadColorsFromCss = function() {
+        this.colors = {
+            bgPrimary:       cssVar('--ind-bg', '#0c1420'),
+            bgSecondary:     cssVar('--ind-bg-secondary', '#182838'),
+            border:          cssVar('--ind-border', '#3a5060'),
+            accent:          cssVar('--ind-accent', '#7ab8d0'),
+            antennaAccent:   cssVar('--ind-antenna', '#22a05a'),
+            accentBlue:      cssVar('--ind-accent-blue', '#86b8d4'),
+            accentRed:       cssVar('--ind-accent-red', '#d05545'),
+            textPrimary:     cssVar('--ind-text', '#c8d0d8'),
+            textSecondary:   cssVar('--ind-text-secondary', '#8a9aaa'),
+            textMuted:       cssVar('--ind-text-muted', '#708898'),
+            labelMuted:      cssVar('--ind-label-muted', '#d0d8e0'),
+            satelliteLine:   themeRgba('ind-satellite-line', 'rgba(255, 255, 255, 0.5)'),
+            satelliteMarker: cssVar('--ind-satellite-marker', '#ffffff'),
+            outOfView:       themeRgba('ind-out-of-view', 'rgba(255, 107, 107, 0.7)')
+        };
+    };
+
+    ElevationIndicator.prototype.refreshThemeColors = function() {
+        this._reloadColorsFromCss();
+    };
+
+    /**
+     * Подстройка размера canvas под контейнер (квадрат по меньшей стороне)
+     * @param {number} w - ширина
+     * @param {number} h - высота
+     */
+    ElevationIndicator.prototype.resize = function(w, h) {
+        const size = Math.min(w, h);
+        if (size <= 0) { return; }
+        this.logicalWidth = size;
+        this.logicalHeight = size;
+        this.centerX = size / 2;
+        this.radius = size / 2 - 25;
+        const topPadding = 24;
+        this.centerY = this.radius + topPadding + 5;
+        this.antennaScale = this.radius / 100 * 0.95;
+
+        this._recalcPedestalBottom();
+
+        if (window.CanvasUtils) {
+            this.ctx = window.CanvasUtils.setupHiDPICanvas(this.canvas, size, size);
+        } else {
+            this.canvas.width = size;
+            this.canvas.height = size;
+        }
+        this.draw();
+    };
+
+    /**
+     * Пересчёт нижней точки постамента (для позиционирования инфо-панели)
+     */
+    ElevationIndicator.prototype._recalcPedestalBottom = function() {
         const s = this.antennaScale;
         const mountHeight = 16 * s;
-        const innerArcR = mountHeight / 2 + 6 * s;
-        const outerArcR = innerArcR + 5 * s;
-        const lineLen = outerArcR + 35;
-        const trapH = 35 * s;
-        this.pedestalBottom = this.centerY + lineLen + trapH;
-        this.infoPanelY = this.pedestalBottom + 4;
-    }
+        const outerArcR = mountHeight / 2 + 6 * s + 5 * s;
+        const columnH = outerArcR + 45 * s;
+        const flangeH = 4 * s;
+        const trapH = 28 * s;
+        this.pedestalBottom = this.centerY + columnH + flangeH + trapH;
+        this.infoPanelY = this.pedestalBottom + 8;
+    };
 
     ElevationIndicator.prototype.degToRad = function(deg) {
         return deg * Math.PI / 180;
@@ -107,8 +153,8 @@
 
         ctx.beginPath();
         ctx.arc(cx, cy, r - 18, Math.PI, 0, false);
-        ctx.strokeStyle = this.colors.border;
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = this.colors.accentBlue;
+        ctx.lineWidth = 1;
         ctx.stroke();
 
         // Зенит = 90°
@@ -119,7 +165,7 @@
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        ctx.font = '10px monospace';
+        ctx.font = '12px monospace';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
@@ -145,7 +191,7 @@
                 const labelR = r + 12;
                 const label = labelValue.toString() + '°';
 
-                ctx.fillStyle = (labelValue === 90) ? this.colors.textPrimary : this.colors.textSecondary;
+                ctx.fillStyle = this.colors.labelMuted;
                 ctx.fillText(label, cx + Math.cos(radLeft) * labelR, cy - Math.sin(radLeft) * labelR);
             }
 
@@ -162,7 +208,7 @@
                     const labelR2 = r + 12;
                     const label2 = labelValue.toString() + '°';
 
-                    ctx.fillStyle = this.colors.textSecondary;
+                    ctx.fillStyle = this.colors.labelMuted;
                     ctx.fillText(label2, cx + Math.cos(radRight) * labelR2, cy - Math.sin(radRight) * labelR2);
                 }
             }
@@ -170,7 +216,7 @@
 
         // W и E
         ctx.font = 'bold 11px monospace';
-        ctx.fillStyle = this.colors.textMuted;
+        ctx.fillStyle = this.colors.labelMuted;
         ctx.textAlign = 'center';
         ctx.fillText('W', cx - r - 12, cy + 15);
         ctx.fillText('E', cx + r + 12, cy + 15);
@@ -272,42 +318,85 @@
         const innerArcRadius = mountHeight / 2 + 6 * s;
         const outerArcRadius = innerArcRadius + 5 * s;
 
-        ctx.strokeStyle = this.colors.accent;
-        ctx.lineWidth = 0.75;
+        // === 1. Внешнее кольцо шарнира ===
+        ctx.strokeStyle = this.colors.antennaAccent;
+        ctx.lineWidth = 1.5;
 
         ctx.beginPath();
         ctx.arc(cx, cy, outerArcRadius, 0, Math.PI * 2, false);
         ctx.stroke();
 
-        const lineLength = outerArcRadius + 35;
+        // === 2. Колонна — слегка расширяющаяся книзу ===
+        const columnH = outerArcRadius + 50 * s;
+        const colTopW = outerArcRadius;
+        const colBotW = outerArcRadius + 6 * s;
+        const colTop = cy;
+        const colBot = cy + columnH;
 
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(cx - outerArcRadius, cy);
-        ctx.lineTo(cx - outerArcRadius, cy + lineLength);
+        ctx.moveTo(cx - colTopW, colTop);
+        ctx.lineTo(cx - colBotW, colBot);
         ctx.stroke();
 
         ctx.beginPath();
-        ctx.moveTo(cx + outerArcRadius, cy);
-        ctx.lineTo(cx + outerArcRadius, cy + lineLength);
+        ctx.moveTo(cx + colTopW, colTop);
+        ctx.lineTo(cx + colBotW, colBot);
         ctx.stroke();
+
+        // Диагональные распорки внутри колонны
+        ctx.lineWidth = 0.7;
+        ctx.strokeStyle = this.colors.antennaAccent;
+        ctx.globalAlpha = 0.5;
+        const braceCount = 2;
+        for (let i = 1; i <= braceCount; i++) {
+            const t = i / (braceCount + 1);
+            const by = colTop + columnH * t;
+            const wAtY = colTopW + (colBotW - colTopW) * t;
+            ctx.beginPath();
+            ctx.moveTo(cx - wAtY * 0.85, by);
+            ctx.lineTo(cx + wAtY * 0.85, by);
+            ctx.stroke();
+        }
+        ctx.globalAlpha = 1.0;
+
+        // === 3. Фланцевая пластина (переход колонна → основание) ===
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = this.colors.antennaAccent;
+        const flangeH = 15 * s;
+        const flangeW = colBotW + 4 * s;
 
         ctx.beginPath();
-        ctx.moveTo(cx - outerArcRadius, cy + lineLength);
-        ctx.lineTo(cx + outerArcRadius, cy + lineLength);
+        ctx.rect(cx - flangeW, colBot, flangeW * 2, flangeH);
         ctx.stroke();
 
-        const trapH = 35 * s;
-        const trapBW = 50 * s;
-        const trapTW = 25 * s;
-        const trapTop = cy + lineLength;
+        // === 4. Основание — шестигранник (вид сбоку: плоские верх и низ, 6 граней) ===
+        const trapTop = colBot + flangeH;
+        const trapH = 28 * s;
+        const trapTW = flangeW;
+        const trapBW = 45 * s;
+        const trapMidY = trapTop + trapH / 2;
 
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(cx - trapTW, trapTop);
         ctx.lineTo(cx + trapTW, trapTop);
+        ctx.lineTo(cx + trapBW, trapMidY);
         ctx.lineTo(cx + trapBW, trapTop + trapH);
         ctx.lineTo(cx - trapBW, trapTop + trapH);
+        ctx.lineTo(cx - trapBW, trapMidY);
         ctx.closePath();
         ctx.stroke();
+
+        // Горизонтальная линия-ребро в середине основания
+        ctx.lineWidth = 0.7;
+        ctx.globalAlpha = 0.4;
+        const ribW = (trapTW + trapBW) / 2;
+        ctx.beginPath();
+        ctx.moveTo(cx - ribW + 3 * s, trapMidY);
+        ctx.lineTo(cx + ribW - 3 * s, trapMidY);
+        ctx.stroke();
+        ctx.globalAlpha = 1.0;
     };
 
     /**
@@ -339,65 +428,24 @@
     };
 
     /**
-     * Информационная панель внизу canvas — 3 колонки в одну строку
-     * Колонка 1: NORAD ID
-     * Колонка 2: El ант.
-     * Колонка 3: El КА
+     * Привязка DOM-элементов панели информации (El ант., El КА)
      */
-    ElevationIndicator.prototype._drawInfo = function() {
-        const ctx = this.ctx;
-        const w = this.logicalWidth;
-        const panelHeight = this.infoPanelHeight;
-        const panelY = this.infoPanelY;
+    ElevationIndicator.prototype.setInfoElements = function(els) {
+        const getEl = function(v) {
+            if (!v) {return null;}
+            return typeof v === 'string' ? document.getElementById(v) : v;
+        };
+        this._infoEls = { ant: getEl(els.ant), sat: getEl(els.sat) };
+        this._updateInfoPanelDOM();
+    };
 
-        const panelPadding = 6;
-        const cornerRadius = 6;
-
-        ctx.beginPath();
-        if (ctx.roundRect) {
-            ctx.roundRect(panelPadding, panelY, w - panelPadding * 2, panelHeight, cornerRadius);
-        } else {
-            ctx.rect(panelPadding, panelY, w - panelPadding * 2, panelHeight);
-        }
-        ctx.fillStyle = 'rgba(20, 30, 45, 0.9)';
-        ctx.fill();
-        ctx.strokeStyle = '#006666';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        const rowY = panelY + panelHeight / 2;
-
-        // 3 колонки с фиксированными позициями
-        const col1X = panelPadding + 10; // NORAD слева
-        const col2X = col1X + 70; // El ант. (отступ 70px от NORAD, было 90px)
-        const col3X = col2X + 100; // El КА (отступ 100px от El ант., было 115px)
-
-        ctx.font = 'bold 11px monospace';
-        ctx.textBaseline = 'middle';
-
-        // Колонка 1: NORAD ID (слева)
-        ctx.textAlign = 'left';
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText('ID:', col1X, rowY);
-        ctx.fillStyle = '#00d4aa';
-        const noradText = this.noradId ? String(this.noradId) : '-----';
-        ctx.fillText(noradText, col1X + ctx.measureText('ID:').width + 3, rowY); // +3px минимальный отступ
-
-        // Колонка 2: El ант. (центр-слева)
-        ctx.textAlign = 'left';
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText('El ант.: ', col2X, rowY);
-        ctx.fillStyle = '#00d4aa';
-        const elAntVal = this.currentElevation !== null ? this.currentElevation.toFixed(1) + '°' : '---';
-        ctx.fillText(elAntVal, col2X + ctx.measureText('El ант.: ').width, rowY);
-
-        // Колонка 3: El КА (с отступом от col2)
-        const elSatVal = this.satelliteElevation !== null ? this.satelliteElevation.toFixed(1) + '°' : '---';
-        ctx.textAlign = 'left';
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText('El КА: ', col3X, rowY);
-        ctx.fillStyle = '#00d4aa';
-        ctx.fillText(elSatVal, col3X + ctx.measureText('El КА: ').width, rowY);
+    ElevationIndicator.prototype._updateInfoPanelDOM = function() {
+        const e = this._infoEls;
+        if (!e.ant && !e.sat) {return;}
+        const antStr = this.currentElevation !== null ? this.currentElevation.toFixed(1) + '°' : '---°';
+        const satStr = this.satelliteElevation !== null ? this.satelliteElevation.toFixed(1) + '°' : '---°';
+        if (e.ant) {e.ant.textContent = antStr;}
+        if (e.sat) {e.sat.textContent = satStr;}
     };
 
     /**
@@ -421,7 +469,7 @@
             this._drawOutOfViewMessage();
         }
 
-        this._drawInfo();
+        this._updateInfoPanelDOM();
     };
 
     /**
@@ -432,6 +480,7 @@
         this.currentElevation = Math.max(0, Math.min(90, el));
         this.draw();
     };
+
 
     /**
      * Установка угла места (обратная совместимость)
@@ -457,6 +506,7 @@
             ? Math.max(0, Math.min(90, el))
             : null;
         this.satelliteAzimuth = (az !== null && az !== undefined) ? az : null;
+        this._updateInfoPanelDOM();
     };
 
     /**

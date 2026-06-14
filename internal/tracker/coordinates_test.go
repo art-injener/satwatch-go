@@ -320,6 +320,38 @@ func TestAERDegreeConversions(t *testing.T) {
 	}
 }
 
+func TestInitialBearingDeg_EastAlongEquator(t *testing.T) {
+	lat := 0.0
+	lon1 := 0.0
+	lon2 := 1.0 * Deg2Rad
+	br := InitialBearingDeg(lat, lon1, lat, lon2)
+	if !almostEqual(br, 90.0, 0.01) {
+		t.Errorf("bearing east: want 90°, got %v°", br)
+	}
+}
+
+func TestMapMarkerRotDegFromBearing_East(t *testing.T) {
+	rot := MapMarkerRotDegFromBearingDeg(90, 45)
+	if !almostEqual(rot, -45.0, 0.01) {
+		t.Errorf("east movement marker rot: want -45°, got %v°", rot)
+	}
+}
+
+func TestMapMarkerRotDegPlatCarreChord_East(t *testing.T) {
+	rot := MapMarkerRotDegPlatCarreChord(0, 0, 0, 1, 45)
+	if !almostEqual(rot, -45.0, 0.01) {
+		t.Errorf("plat carré east chord: want -45°, got %v°", rot)
+	}
+}
+
+func TestGreatCircleAngularDistanceRad_SamePoint(t *testing.T) {
+	a := &LLA{Lat: 0.5, Lon: 1.2}
+	b := &LLA{Lat: 0.5, Lon: 1.2}
+	if d := GreatCircleAngularDistanceRad(a, b); d > 1e-12 {
+		t.Errorf("same point: want ~0, got %v", d)
+	}
+}
+
 // TestKnownECEFToLLA проверяет преобразование для известных точек.
 func TestKnownECEFToLLA(t *testing.T) {
 	// Точка на экваторе (0°, 0°), уровень моря.
@@ -345,6 +377,61 @@ func TestKnownECEFToLLA(t *testing.T) {
 	}
 	if !almostEqual(llaPole.Alt, 0.0, 0.001) {
 		t.Errorf("North Pole Alt: expected 0 km, got %v km", llaPole.Alt)
+	}
+}
+
+// TestRangeRateKmps_Nil проверяет граничные случаи: nil-указатели → 0.
+func TestRangeRateKmps_Nil(t *testing.T) {
+	obs := NewObserver(55.7558, 37.6173, 0.156)
+	if got := RangeRateKmps(nil, obs); got != 0 {
+		t.Errorf("RangeRateKmps(nil, obs) = %v, want 0", got)
+	}
+	eci := &ECIPosition{X: 1, Y: 2, Z: 3, Vx: 0.1, Vy: 0.2, Vz: 0.3, Time: time.Now()}
+	if got := RangeRateKmps(eci, nil); got != 0 {
+		t.Errorf("RangeRateKmps(eci, nil) = %v, want 0", got)
+	}
+}
+
+// TestRangeRateKmps_AgainstFiniteDiff сравнивает аналитический range-rate с численной
+// производной дальности по времени (центральная разность по шагу 1 с).
+// Использует ISS-TLE и наблюдателя в Москве; берётся произвольный момент времени
+// после эпохи TLE — важна не абсолютная позиция, а согласованность v и d|r|/dt.
+func TestRangeRateKmps_AgainstFiniteDiff(t *testing.T) {
+	tle := &TLE{Name: "ISS (ZARYA)", Line1: issLine1, Line2: issLine2}
+	prop, err := NewPropagator(tle)
+	if err != nil {
+		t.Fatalf("NewPropagator: %v", err)
+	}
+
+	obs := NewObserver(55.7558, 37.6173, 0.156)
+
+	t0 := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	dt := 1 * time.Second
+
+	// Численная производная: центральная разность по дальности.
+	eciPrev, err := prop.Propagate(t0.Add(-dt))
+	if err != nil {
+		t.Fatalf("Propagate(-dt): %v", err)
+	}
+	eciNext, err := prop.Propagate(t0.Add(dt))
+	if err != nil {
+		t.Fatalf("Propagate(+dt): %v", err)
+	}
+	rngPrev := obs.GetAER(eciPrev).Range
+	rngNext := obs.GetAER(eciNext).Range
+	rrNumeric := (rngNext - rngPrev) / (2 * dt.Seconds())
+
+	eci, err := prop.Propagate(t0)
+	if err != nil {
+		t.Fatalf("Propagate(t0): %v", err)
+	}
+	rrAnalytic := RangeRateKmps(eci, obs)
+
+	// Допуск 1 м/с — гарантирует, что формула радиальной скорости согласована
+	// с производной дальности из существующего GetAER (учёт вращения Земли).
+	if diff := math.Abs(rrAnalytic - rrNumeric); diff > 0.001 {
+		t.Errorf("RangeRateKmps mismatch: analytic=%.6f km/s, numeric=%.6f km/s, |diff|=%.6f km/s",
+			rrAnalytic, rrNumeric, diff)
 	}
 }
 
